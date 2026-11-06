@@ -1,0 +1,13 @@
+{
+  "appId": "io.github.pmplernpartner",
+  "appName": "PMP-Lernpartner",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true },
+    "SystemBars": { "insetsHandling": "css", "initialViewportFitValueHint": "cover" },
+    "LocalNotifications": { "smallIcon": "ic_stat_haken", "iconColor": "#2747C9" }
+  }
+}

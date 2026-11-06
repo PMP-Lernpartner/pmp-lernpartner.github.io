@@ -3,6 +3,7 @@
 Persönliche Lern-Web-App für die PMP-Prüfung: zeigt Fragen aus einer Google-Sheets-Fragenbank, wertet jede Antwort sofort aus und speichert den Lernstand nur auf dem eigenen Gerät.
 
 - Läuft als installierbare Web-App (PWA) über GitHub Pages: https://pmp-lernpartner.github.io/
+- Android-App (Capacitor) mit eigenen täglichen Erinnerungen: Ordner `android-app/`, gebaut über GitHub Actions; Download unter Releases
 - Einstellungen in `config.js` (Fragenbank-Adresse, Adresse der Skript-Schnittstelle)
 - Keine persönlichen Daten im Repository, kein Server, keine Kosten
 

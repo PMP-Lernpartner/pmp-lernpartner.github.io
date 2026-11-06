@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icon "Haken im Kreis", weiß auf der Akzentfarbe (Hintergrund in values/ic_launcher_background.xml) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M54,30.65a23.35,23.35 0,1 1,0 46.7a23.35,23.35 0,1 1,0 -46.7z"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5.3" />
+    <path
+        android:pathData="M43.72,55.56L50.89,62.72L64.28,47.77"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5.3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

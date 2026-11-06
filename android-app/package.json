@@ -1,0 +1,20 @@
+{
+  "name": "pmp-lernpartner-android",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Android-App des PMP-Lernpartners (Capacitor-Hülle um die Lern-App im Hauptordner)",
+  "scripts": {
+    "web": "node web-kopieren.js",
+    "sync": "npm run web && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

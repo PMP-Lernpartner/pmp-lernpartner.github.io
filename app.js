@@ -1,12 +1,14 @@
-/* PMP-Lernpartner – Web-App (Version 1, 06.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.1, 06.11.2026)
  * Liest die veröffentlichte Fragenbank (CSV), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
+ * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
+ * plant das Handy die täglichen Erinnerungen selbst.
  */
 (function () {
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.0.0';
+  var APP_VERSION = '1.1.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -42,7 +44,13 @@
       reset: s.reset || {},
       zaehler: s.zaehler || 0,
       offen: s.offen || null,
+      erinnerung: normErinnerung(s.erinnerung),
     };
+  }
+  function normErinnerung(e) {
+    e = e || {};
+    var zeiten = Array.isArray(e.zeiten) ? e.zeiten.filter(function (z) { return /^\d{2}:\d{2}$/.test(z); }) : [];
+    return { an: e.an !== false, zeiten: zeiten.length === 3 ? zeiten : ['07:00', '12:00', '18:00'] };
   }
   function speichere() {
     try { localStorage.setItem(SPEICHER, JSON.stringify(S)); } catch (e) {}
@@ -77,6 +85,77 @@
     sets: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
     statistik: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M6 16v-5"/><path d="M11 16V6"/><path d="M16 16v-8"/><path d="M21 16v-3"/></svg>',
   };
+
+  /* ---------- Android-App: Erinnerungen und Export ---------- */
+
+  var CAP = window.Capacitor;
+  var NATIV = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
+  var PLUG = (NATIV && CAP.Plugins) || {};
+  var LN = PLUG.LocalNotifications || null;
+  var ERINNERUNG_IDS = [701, 702, 703];
+  var TEST_ID = 799;
+  var erin = { erlaubt: null, geplant: 0, fehler: '', laeuft: null };
+
+  function erinnerungsText() {
+    var d = fragen.map(function (q) { return q.domain; }).filter(Boolean);
+    return d.length ? 'Heute im Fokus: ' + d[Math.floor(Math.random() * d.length)] + '.' : 'Eine Frage wartet auf dich.';
+  }
+  function erinnerungsNachricht(id, schedule) {
+    return { id: id, title: 'PMP: Zeit für eine Frage', body: erinnerungsText(), channelId: 'erinnerungen',
+      schedule: schedule, extra: { ziel: '#/frage' } };
+  }
+  function erlaubnis(fragen) {
+    return LN.checkPermissions().then(function (p) {
+      if (p.display === 'granted' || !fragen) return p;
+      return p.display === 'denied' ? p : LN.requestPermissions();
+    }).then(function (p) { erin.erlaubt = p.display === 'granted'; return erin.erlaubt; });
+  }
+  /* Plant die drei täglichen Erinnerungen neu (beim Start, nach Änderungen, beim Zurückkehren in die App). */
+  function planeErinnerungen(mitNachfrage) {
+    if (!LN) return Promise.resolve();
+    if (erin.laeuft) return erin.laeuft;
+    var e = S.erinnerung;
+    erin.laeuft = LN.cancel({ notifications: ERINNERUNG_IDS.map(function (id) { return { id: id }; }) })
+      .catch(function () {})
+      .then(function () {
+        if (!e.an) { erin.geplant = 0; return; }
+        return erlaubnis(mitNachfrage !== false).then(function (ok) {
+          if (!ok) { erin.geplant = 0; return; }
+          return LN.createChannel({ id: 'erinnerungen', name: 'Erinnerungen', description: 'Tägliche Lernerinnerungen', importance: 4, visibility: 1, vibration: true })
+            .catch(function () {})
+            .then(function () {
+              return LN.schedule({ notifications: e.zeiten.map(function (z, i) {
+                var t = z.split(':');
+                return erinnerungsNachricht(ERINNERUNG_IDS[i], { on: { hour: +t[0], minute: +t[1] }, allowWhileIdle: true, isExactNotification: false });
+              }) });
+            })
+            .then(function () { erin.geplant = e.zeiten.length; erin.fehler = ''; });
+        });
+      })
+      .catch(function (err) { erin.fehler = String((err && err.message) || err); })
+      .then(function () { erin.laeuft = null; });
+    return erin.laeuft;
+  }
+  function testErinnerung() {
+    if (!LN) return Promise.resolve();
+    return erlaubnis(true).then(function (ok) {
+      if (!ok) throw new Error('Benachrichtigungen sind für die App nicht erlaubt.');
+      return LN.schedule({ notifications: [erinnerungsNachricht(TEST_ID, { at: new Date(Date.now() + 60000), allowWhileIdle: true, isExactNotification: false })] });
+    });
+  }
+  if (LN) {
+    LN.addListener('localNotificationActionPerformed', function (a) {
+      var ziel = (a && a.notification && a.notification.extra && a.notification.extra.ziel) || '#/frage';
+      if (location.hash !== ziel) location.hash = ziel;
+    });
+  }
+  /* Export in der Android-App: Datei im Cache ablegen und über "Teilen" speichern (z. B. ins Drive). */
+  function exportiereNativ(name, daten) {
+    var FS = PLUG.Filesystem, SH = PLUG.Share;
+    if (!FS || !SH) return Promise.reject(new Error('Export ist in dieser Version nicht verfügbar.'));
+    return FS.writeFile({ path: name, data: daten, directory: 'CACHE', encoding: 'utf8' })
+      .then(function (r) { return SH.share({ title: 'PMP-Lernstand', files: [r.uri], dialogTitle: 'Lernstand speichern' }); });
+  }
 
   /* ---------- CSV ---------- */
 
@@ -604,13 +683,14 @@
       '<section class="karte"><span class="ueber">Fragenbank</span><p>' + fragen.length + ' aktive Fragen in ' + setKeys().length + ' Sets</p>' +
       '<p class="leise">' + (datenStand ? 'Geladen am ' + esc(datumZeit(datenStand)) : 'Noch nicht geladen') + (ladeFehler ? ' · letzter Abruf fehlgeschlagen' : '') + '</p>' +
       '<button class="knopf zweit klein" data-neu>Datenquelle neu laden</button></section>' +
-      '<section class="karte"><span class="ueber">Erinnerungen</span><p class="leise">Täglich gegen 7, 12 und 18 Uhr als Push über die ntfy-App (Thema ' + esc(CFG.NTFY_THEMA || '') + '). Die Zeiten stehen im Apps Script der Fragenbank.</p></section>' +
+      erinnerungsKarte() +
       '<p class="leise" style="text-align:center">PMP-Lernpartner ' + APP_VERSION + '</p></main>';
     app.innerHTML = html;
     app.querySelectorAll('[data-theme]').forEach(function (el) {
       el.addEventListener('click', function () { S.theme = el.getAttribute('data-theme'); speichere(); wendeThemaAn(); render(); });
     });
     app.querySelector('[data-export]').addEventListener('click', exportiere);
+    bindeErinnerungen();
     app.querySelector('[data-import]').addEventListener('change', importiere);
     app.querySelector('[data-neu]').addEventListener('click', function (e) {
       e.target.disabled = true; e.target.textContent = 'Lade …';
@@ -619,13 +699,60 @@
     });
   }
 
+  function erinnerungsKarte() {
+    if (!NATIV) {
+      return '<section class="karte"><span class="ueber">Erinnerungen</span><p class="leise">Im Browser kommen keine Erinnerungen von der Lern-App. In der Android-App des PMP-Lernpartners plant das Handy sie selbst, täglich zu festen Zeiten.</p></section>';
+    }
+    var e = S.erinnerung;
+    var status = !LN ? 'Erinnerungen sind in dieser Version nicht verfügbar.'
+      : !e.an ? 'Aus.'
+      : erin.erlaubt === false ? 'Benachrichtigungen sind nicht erlaubt. Erlaube sie in den Android-Einstellungen für den PMP-Lernpartner.'
+      : erin.fehler ? 'Fehler: ' + erin.fehler
+      : erin.geplant ? 'Eingeplant: täglich um ' + e.zeiten.join(', ') + ' Uhr.' : 'Wird eingeplant …';
+    return '<section class="karte"><span class="ueber">Erinnerungen</span>' +
+      '<div class="segment" role="group" aria-label="Erinnerungen"><button data-erin-an="1" aria-pressed="' + e.an + '">An</button><button data-erin-an="0" aria-pressed="' + !e.an + '">Aus</button></div>' +
+      '<div class="zeiten">' + e.zeiten.map(function (z, i) {
+        return '<label><span class="leise">' + ['Früh', 'Mittag', 'Abend'][i] + '</span><input type="time" data-zeit="' + i + '" value="' + esc(z) + '"' + (e.an ? '' : ' disabled') + '></label>';
+      }).join('') + '</div>' +
+      '<p class="leise" data-erin-status>' + esc(status) + '</p>' +
+      '<button class="knopf zweit klein" data-erin-test' + (e.an ? '' : ' disabled') + '>Test-Erinnerung in 1 Minute</button></section>';
+  }
+  function bindeErinnerungen() {
+    if (!NATIV) return;
+    var neu = function (meldung) { planeErinnerungen(true).then(function () { if (aktuelleRoute().name === 'einstellungen') zeigeEinstellungen(meldung); }); };
+    app.querySelectorAll('[data-erin-an]').forEach(function (el) {
+      el.addEventListener('click', function () { S.erinnerung.an = el.getAttribute('data-erin-an') === '1'; speichere(); neu(); });
+    });
+    app.querySelectorAll('[data-zeit]').forEach(function (el) {
+      el.addEventListener('change', function () {
+        if (!/^\d{2}:\d{2}$/.test(el.value)) return;
+        S.erinnerung.zeiten[+el.getAttribute('data-zeit')] = el.value; speichere();
+        neu('<p class="meldung gut">Erinnerungszeiten gespeichert.</p>');
+      });
+    });
+    var t = app.querySelector('[data-erin-test]');
+    if (t) t.addEventListener('click', function () {
+      t.disabled = true;
+      testErinnerung().then(function () { zeigeEinstellungen('<p class="meldung gut">Test-Erinnerung kommt in etwa einer Minute. Du kannst die App schließen.</p>'); },
+        function (err) { zeigeEinstellungen('<p class="meldung fehler">' + esc((err && err.message) || err) + '</p>'); });
+    });
+  }
+
   function exportiere() {
     var daten = JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
+    var d = new Date();
+    var name = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
+    if (NATIV) {
+      exportiereNativ(name, daten).catch(function (err) {
+        if (/cancel/i.test(String((err && err.message) || err))) return;
+        zeigeEinstellungen('<p class="meldung fehler">Export fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+      });
+      return;
+    }
     var blob = new Blob([daten], { type: 'application/json' });
     var a = document.createElement('a');
-    var d = new Date();
     a.href = URL.createObjectURL(blob);
-    a.download = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
+    a.download = name;
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
@@ -639,7 +766,7 @@
         var ls = j.lernstand || j;
         if (!ls || typeof ls.antworten !== 'object') throw new Error('Keine Lernstand-Datei');
         if (!window.confirm('Lernstand aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
-        S = normalisiere(ls); speichere(); wendeThemaAn();
+        S = normalisiere(ls); speichere(); wendeThemaAn(); planeErinnerungen(false);
         sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
         zeigeEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
       } catch (err) {
@@ -701,6 +828,7 @@
     if (mq.addEventListener) mq.addEventListener('change', wendeThemaAn);
   }
   document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') planeErinnerungen(false);
     if (document.visibilityState === 'visible' && datenStand && Date.now() - datenStand > 10 * 60000) {
       ladeFragenbank().then(function () { if (aktuelleRoute().name !== 'frage') render(); }, function () {});
     }
@@ -711,9 +839,11 @@
   render();
   ladeFragenbank().then(function () {
     if (!ausCache || aktuelleRoute().name !== 'frage') render();
-  }, function () { render(); });
+  }, function () { render(); }).then(function () {
+    return planeErinnerungen(true);
+  }).then(function () { if (aktuelleRoute().name === 'einstellungen') render(); });
 
-  if ('serviceWorker' in navigator) {
+  if (!NATIV && 'serviceWorker' in navigator) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
   }
 

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PMP-Lernpartner</string>
+    <string name="title_activity_main">PMP-Lernpartner</string>
+    <string name="package_name">io.github.pmplernpartner</string>
+    <string name="custom_url_scheme">io.github.pmplernpartner</string>
+</resources>
