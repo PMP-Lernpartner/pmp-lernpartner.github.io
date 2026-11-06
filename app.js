@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.1.0';
+  var APP_VERSION = '1.2.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -16,6 +16,26 @@
   var ECO_NAME = { I: 'People', II: 'Process', III: 'Business Environment' };
   var DOMAINS = ['Governance', 'Scope', 'Schedule', 'Finance', 'Stakeholders', 'Resources', 'Risk'];
   var FOCUS = ['Initiating', 'Planning', 'Executing', 'Monitoring and Controlling', 'Closing'];
+  /* Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain und Focus Area.
+   * Quelle: PMI-Übersicht „PMBOK 8th Edition: Mapping Process Groups to Performance Domains“ (Projektgrundlage Abschnitt 11, Q3). */
+  var PROZESSE = {
+    Governance: { Initiating: ['Authorize Project Initiation'], Planning: ['Integrate and Align Project Plans'],
+      Executing: ['Direct and Manage Project Execution', 'Manage Project Knowledge'],
+      'Monitoring and Controlling': ['Monitor and Control Project Performance', 'Manage Project Changes'], Closing: ['Close Project or Phase'] },
+    Scope: { Planning: ['Plan Scope Management', 'Collect Requirements', 'Create WBS', 'Define Scope'],
+      Executing: ['Validate Scope'], 'Monitoring and Controlling': ['Manage and Control Scope'] },
+    Schedule: { Planning: ['Design the Schedule', 'Develop the Schedule'], 'Monitoring and Controlling': ['Maintain the Schedule'] },
+    Finance: { Planning: ['Plan Financial Management', 'Conduct Make-or-Buy Decisions', 'Estimate Costs', 'Determine Budget'],
+      'Monitoring and Controlling': ['Control Finances'] },
+    Stakeholders: { Initiating: ['Identify Stakeholders'], Planning: ['Plan Stakeholder Engagement', 'Plan Communications Management'],
+      Executing: ['Manage Sponsor Engagement', 'Manage Stakeholder Engagement', 'Manage Communications'],
+      'Monitoring and Controlling': ['Monitor Stakeholder Engagement', 'Monitor Communications'] },
+    Resources: { Planning: ['Plan Resource Management', 'Estimate Activity Resources'], Executing: ['Acquire Resources', 'Lead the Team'],
+      'Monitoring and Controlling': ['Control Resources'] },
+    Risk: { Planning: ['Plan Risk Management', 'Identify Risks', 'Perform Risk Analysis', 'Plan Risk Responses'],
+      Executing: ['Implement Risk Responses'], 'Monitoring and Controlling': ['Monitor Risks'] },
+  };
+  var PRINCIPLES = ['Adopt a holistic view', 'Focus on value', 'Embed quality', 'Be an accountable leader', 'Integrate sustainability', 'Build empowered teams'];
 
   /* ---------- Zustand ---------- */
 
@@ -27,7 +47,7 @@
   var ladeFehler = '';
   var sitzung = { id: null, phase: 'frage', antwort: null, vorher: null, quelle: 'lernen', durch: false };
   var vorrat = { stand: 0, laedt: false, bereit: null, fehler: '', meldung: '' };
-  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null };
+  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {} };
 
   function ladeZustand() {
     var s = {};
@@ -83,6 +103,7 @@
     wieder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
     lernen: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>',
     sets: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
+    uebersicht: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>',
     statistik: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M6 16v-5"/><path d="M11 16V6"/><path d="M16 16v-8"/><path d="M21 16v-3"/></svg>',
   };
 
@@ -291,8 +312,8 @@
 
   /* ---------- Auswahl der nächsten Frage ---------- */
 
-  function waehleFrage(key, ausser) {
-    var pool = fragenImSet(key);
+  function waehleFrage(key, ausser, poolVorgabe) {
+    var pool = poolVorgabe || fragenImSet(key);
     if (!pool.length) return { q: null, durch: false };
     var jetzt = Date.now();
     var ohne = function (l) { var f = l.filter(function (q) { return q.id !== ausser; }); return f.length ? f : l; };
@@ -365,6 +386,7 @@
       '<a href="#/start"' + p('lernen') + '>' + IKON.lernen + 'Lernen</a>' +
       '<a href="#/sets"' + p('sets') + '>' + IKON.sets + 'Sets</a>' +
       '<a href="#/statistik"' + p('statistik') + '>' + IKON.statistik + 'Statistik</a>' +
+      '<a href="#/uebersicht"' + p('uebersicht') + '>' + IKON.uebersicht + 'Übersicht</a>' +
       '</div></nav>';
   }
   function kopfMitZahnrad(titelHtml) {
@@ -408,14 +430,20 @@
   function zeigeFrage() {
     var q = sitzung.id && nachId[sitzung.id];
     if (!q) {
-      if (sitzung.quelle === 'lernen') { naechste(); q = nachId[sitzung.id]; }
+      if (sitzung.quelle === 'lernen' || sitzung.quelle === 'fokus') { naechste(); q = nachId[sitzung.id]; }
       if (!q) { app.innerHTML = '<main class="seite"><p class="meldung">In diesem Set gibt es keine Fragen.</p><a class="knopf zweit" href="#/sets">Zu den Sets</a></main>'; return; }
     }
     if (sitzung.phase === 'feedback') return zeigeFeedback(q);
     var zaehler = heuteBeantwortet() + 1;
-    var zurueck = sitzung.quelle === 'liste' ? '<a class="textknopf zurueck" href="#/set/' + esc(q.paket) + '">' + IKON.links + 'Liste</a>' : '<a class="textknopf zurueck" href="#/start">Pause</a>';
+    var zurueck = sitzung.quelle === 'liste' ? '<a class="textknopf zurueck" href="#/set/' + esc(q.paket) + '">' + IKON.links + 'Liste</a>'
+      : sitzung.quelle === 'fokus' ? '<a class="textknopf zurueck" href="#/statistik">' + IKON.links + 'Statistik</a>'
+      : '<a class="textknopf zurueck" href="#/start">Pause</a>';
     var hinweisDurch = sitzung.durch && sitzung.quelle === 'lernen'
       ? '<p class="meldung">Alle Fragen in ' + esc(setName(S.aktivesSet)) + ' sind beantwortet – jetzt kommt Wiederholung. <a href="#/sets">Set neu beginnen, wechseln oder neue Sets übernehmen</a>.</p>' : '';
+    if (sitzung.quelle === 'fokus') {
+      hinweisDurch = '<p class="meldung fokus">Prozess üben: <b lang="en">' + esc(sitzung.fokus) + '</b> · ' + fokusFragen(sitzung.fokus).length + ' Fragen' +
+        (sitzung.durch ? ' – alle beantwortet, jetzt Wiederholung.' : '') + '</p>';
+    }
     app.innerHTML = '<main class="seite"><div class="kopf">' + zurueck + '<span class="leise">Heute · Frage ' + zaehler + '</span></div>' +
       hinweisDurch + einordnung(q) +
       '<p class="fragetext" lang="en">' + esc(q.frage) + '</p>' +
@@ -473,7 +501,7 @@
       html += '<div class="fuss knopfreihe"><a class="knopf zweit" href="#/set/' + esc(q.paket) + '">Liste</a>' +
         '<button class="knopf" data-aktion="nochmal">Nochmal ' + IKON.wieder + '</button></div>';
     } else {
-      html += '<div class="fuss knopfreihe"><a class="knopf zweit" href="#/start">Pause</a>' +
+      html += '<div class="fuss knopfreihe"><a class="knopf zweit" href="' + (sitzung.quelle === 'fokus' ? '#/statistik' : '#/start') + '">' + (sitzung.quelle === 'fokus' ? 'Fertig' : 'Pause') + '</a>' +
         '<button class="knopf" data-aktion="weiter">Weiter ' + IKON.pfeil + '</button></div>';
     }
     app.innerHTML = html + '</main>';
@@ -483,8 +511,14 @@
     if (n) n.addEventListener('click', function () { sitzung.phase = 'frage'; sitzung.antwort = null; render(); window.scrollTo(0, 0); });
   }
 
+  function fokusFragen(prozess) { return fragen.filter(function (q) { return q.prozess === prozess; }); }
   function naechste() {
     var aus = sitzung.id;
+    if (sitzung.quelle === 'fokus') {
+      var rf = waehleFrage(null, aus, fokusFragen(sitzung.fokus));
+      sitzung = { id: rf.q ? rf.q.id : null, phase: 'frage', antwort: null, quelle: 'fokus', fokus: sitzung.fokus, durch: rf.durch };
+      return;
+    }
     var r = waehleFrage(S.aktivesSet, aus);
     sitzung = { id: r.q ? r.q.id : null, phase: 'frage', antwort: null, quelle: 'lernen', durch: r.durch };
     S.offen = sitzung.id;
@@ -650,6 +684,10 @@
         return '<button data-modus="' + m[0] + '" aria-pressed="' + (ui.statModus === m[0]) + '">' + m[1] + '</button>';
       }).join('') + '</div><section class="karte">';
     if (!gesamt) html += '<p class="leise">Noch keine Antworten. Die Auswertung füllt sich mit jeder Frage.</p>';
+    if (ui.statModus === 'prozess') {
+      html += statProzesseHtml(q, quoteNach('domain'));
+      reihenfolge = [];
+    }
     reihenfolge.forEach(function (k) {
       var s = q[k], p = prozent(s.ok, s.n), schwach = p != null && p < 60;
       html += '<div class="statzeile' + (schwach ? ' schwach' : '') + '"><div class="zeile"><span>' + esc(k) + '</span><span>' +
@@ -667,6 +705,67 @@
     app.querySelectorAll('[data-modus]').forEach(function (el) {
       el.addEventListener('click', function () { ui.statModus = el.getAttribute('data-modus'); render(); });
     });
+    app.querySelectorAll('details[data-domain]').forEach(function (el) {
+      el.addEventListener('toggle', function () { ui.statOffen[el.getAttribute('data-domain')] = el.open; });
+    });
+  }
+
+  /* Matrix der 40 Prozesse: Zeilen = Performance Domains, Spalten = Focus Areas (Reiter Übersicht). */
+  function matrixHtml() {
+    var spalte = {};
+    FOCUS.forEach(function (f) { spalte[f] = 0; DOMAINS.forEach(function (d) { spalte[f] += (PROZESSE[d][f] || []).length; }); });
+    var html = '<div class="matrix-rahmen" tabindex="0" aria-label="Prozess-Matrix, seitlich wischen"><table class="matrix"><thead><tr><th class="ecke" scope="col">Domain<span>Focus Area →</span></th>' +
+      FOCUS.map(function (f) { return '<th scope="col">' + esc(f) + '<span>' + spalte[f] + '</span></th>'; }).join('') + '</tr></thead><tbody>';
+    DOMAINS.forEach(function (d) {
+      var zahl = FOCUS.reduce(function (n, f) { return n + (PROZESSE[d][f] || []).length; }, 0);
+      html += '<tr><th scope="row">' + esc(d) + '<span>' + zahl + '</span></th>' + FOCUS.map(function (f) {
+        var liste = PROZESSE[d][f] || [];
+        if (!liste.length) return '<td class="leer" aria-label="keine Prozesse">–</td>';
+        return '<td>' + liste.map(function (pz) { return '<span class="m-p" lang="en">' + esc(pz) + '</span>'; }).join('') + '</td>';
+      }).join('') + '</tr>';
+    });
+    return html + '</tbody></table></div>';
+  }
+
+  /* Statistik nach Prozess (Variante B): je Domain eine aufklappbare Karte, darin die Prozesse nach Focus Area
+   * mit Quote und Zahl der Antworten; ein Tipp startet eine Übungsrunde nur mit den Fragen dieses Prozesses. */
+  function statProzesseHtml(q, qDomain) {
+    var html = '<p class="leise">Domain aufklappen, Prozess antippen: Du übst dann nur dessen Fragen. Grün ab 60 %, Orange darunter, grau = noch offen.</p>';
+    DOMAINS.forEach(function (d) {
+      var sd = qDomain[d], pd = sd ? prozent(sd.ok, sd.n) : null;
+      html += '<details class="domainkarte" data-domain="' + esc(d) + '"' + (ui.statOffen[d] ? ' open' : '') + '><summary><span>' + esc(d) + '</span><span class="' +
+        (pd == null ? 'offen' : pd < 60 ? 'schwach' : 'gut') + '">' + (pd == null ? 'noch offen' : 'Quote ' + pd + ' %') + '</span></summary>';
+      FOCUS.forEach(function (f) {
+        var liste = PROZESSE[d][f] || [];
+        if (!liste.length) return;
+        html += '<p class="focuslabel" lang="en">' + esc(f) + '</p>';
+        liste.forEach(function (pz) {
+          var s = q[pz], p = s ? prozent(s.ok, s.n) : null, anzahl = fokusFragen(pz).length;
+          var klasse = p == null ? 'offen' : p < 60 ? 'schwach' : 'gut';
+          var info = !anzahl ? 'keine Fragen' : p == null ? 'offen · ' + anzahl + (anzahl === 1 ? ' Frage' : ' Fragen') : p + ' % · ' + s.n;
+          var inhalt = '<span lang="en">' + esc(pz) + '</span><span class="' + klasse + '">' + esc(info) + (anzahl ? ' ›' : '') + '</span>';
+          html += anzahl ? '<a class="prozesszeile" href="#/fokus/' + encodeURIComponent(pz) + '" aria-label="' + esc(pz) + ' üben">' + inhalt + '</a>'
+            : '<div class="prozesszeile">' + inhalt + '</div>';
+        });
+      });
+      html += '</details>';
+    });
+    return html;
+  }
+
+  function zeigeUebersicht() {
+    app.innerHTML = '<main class="seite mit-nav breit">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') +
+      '<p class="leise">Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain (Zeilen) und Focus Area (Spalten). Seitlich wischen; quer gehalten passt mehr aufs Display.</p>' +
+      matrixHtml() +
+      '<section class="karte"><span class="ueber">Verteilung</span><div class="verteilung">' +
+      FOCUS.map(function (f) {
+        var n = DOMAINS.reduce(function (s, d) { return s + (PROZESSE[d][f] || []).length; }, 0);
+        return '<div class="zeile"><span lang="en">' + esc(f) + '</span><span>' + n + '</span></div>';
+      }).join('') + '<div class="zeile summe"><span>Prozesse gesamt</span><span>40</span></div></div></section>' +
+      '<section class="karte"><span class="ueber">6 Principles</span><ol class="principles" lang="en">' +
+      PRINCIPLES.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></section>' +
+      '<p class="leise">Quelle: PMI, PMBOK Guide 8 – Übersicht „Mapping Process Groups to Performance Domains“. Eigene Darstellung; Focus Areas entsprechen den früheren Process Groups.</p>' +
+      '</main>' + nav('uebersicht');
   }
 
   function zeigeEinstellungen(meldung) {
@@ -813,6 +912,11 @@
     if (r.name === 'sets') return zeigeSets();
     if (r.name === 'set') return zeigeSetliste(r.arg);
     if (r.name === 'statistik') return zeigeStatistik();
+    if (r.name === 'uebersicht') return zeigeUebersicht();
+    if (r.name === 'fokus') {
+      if (sitzung.quelle !== 'fokus' || sitzung.fokus !== r.arg) sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'fokus', fokus: r.arg, durch: false };
+      return zeigeFrage();
+    }
     if (r.name === 'einstellungen') return zeigeEinstellungen();
     return zeigeStart();
   }

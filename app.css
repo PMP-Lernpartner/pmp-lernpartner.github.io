@@ -176,3 +176,37 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 .zeiten input { min-height: 44px; border: 1.5px solid var(--strong); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; padding: 0 6px; width: 100%; min-width: 0; box-sizing: border-box; }
 .zeiten input:disabled { opacity: .5; }
 .knopf:disabled { opacity: .55; }
+/* Übersicht: Prozess-Matrix (Domains × Focus Areas) */
+.seite.breit { max-width: 980px; }
+.matrix-rahmen { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.matrix { border-collapse: separate; border-spacing: 0; min-width: 720px; width: 100%; font-size: 12.5px; }
+.matrix th, .matrix td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px; vertical-align: top; text-align: left; }
+.matrix tr > :last-child { border-right: 0; }
+.matrix tbody tr:last-child > * { border-bottom: 0; }
+.matrix thead th { background: var(--sunken); font-family: var(--head); font-weight: 600; font-size: 12.5px; line-height: 1.25; }
+.matrix th span { display: block; font-family: inherit; font-weight: 500; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.matrix tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); font-family: var(--head); font-weight: 600; font-size: 13px; width: 104px; min-width: 104px; box-shadow: 1px 0 0 var(--border); }
+.matrix thead th.ecke { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--border); }
+.matrix td { min-width: 128px; }
+.matrix td.leer { color: var(--muted); text-align: center; vertical-align: middle; }
+.m-p { display: block; padding: 5px 7px; margin-bottom: 5px; border-radius: 8px; background: var(--sunken); color: var(--ink); line-height: 1.3; }
+.m-p:last-child { margin-bottom: 0; }
+.verteilung { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.verteilung .zeile span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
+.verteilung .summe { border-top: 1px solid var(--border); padding-top: 6px; font-weight: 600; }
+.principles { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+/* Statistik nach Prozess (Variante B) */
+.domainkarte { border: 1px solid var(--border); border-radius: 14px; padding: 0 12px; }
+.domainkarte summary { list-style: none; display: flex; justify-content: space-between; align-items: center; min-height: 48px; cursor: pointer; font-family: var(--head); font-weight: 600; font-size: 15px; }
+.domainkarte summary::-webkit-details-marker { display: none; }
+.domainkarte summary::after { content: '›'; margin-left: 8px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.domainkarte[open] summary::after { transform: rotate(-90deg); }
+.domainkarte summary span:last-child { margin-left: auto; font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 600; }
+.domainkarte[open] { padding-bottom: 8px; }
+.focuslabel { margin: 10px 0 2px; font-size: 12px; font-weight: 600; color: var(--accent-text); }
+.prozesszeile { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--ink); font-size: 14px; }
+.prozesszeile:last-child { border-bottom: 0; }
+.prozesszeile span:last-child { white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums; }
+.gut { color: var(--ok-text); } .schwach { color: var(--bad-text); } .offen { color: var(--muted); }
+.meldung.fokus b { font-weight: 600; }
+.app:has(.seite.breit) { max-width: 980px; }
