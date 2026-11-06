@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PMP-Lernpartner</title>
+<meta name="description" content="Persönliche Lernhilfe für die PMP-Prüfung">
+<meta name="theme-color" content="#F4F5F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1217" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="PMP-Lernpartner">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=1">
+<script>
+  (function () {
+    try {
+      var s = JSON.parse(localStorage.getItem('pmplp.v1') || '{}');
+      if (s.theme === 'hell' || s.theme === 'dunkel') document.documentElement.dataset.theme = s.theme;
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+<div id="app" class="app" aria-live="polite">
+  <div class="laden">PMP-Lernpartner wird geladen …</div>
+</div>
+<noscript>Der PMP-Lernpartner braucht JavaScript.</noscript>
+<script src="config.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
