@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.3.0';
+  var APP_VERSION = '1.3.1';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -117,6 +117,61 @@
   var ERINNERUNG_IDS = [701, 702, 703];
   var TEST_ID = 799;
   var erin = { erlaubt: null, geplant: 0, fehler: '', laeuft: null };
+
+  /* ---------- Android-App: Update-Hinweis ----------
+   * Die Versionsnummer der installierten APK setzt web-kopieren.js beim Build als window.PMP_BUILD ein.
+   * Die neueste Version liest die Android-App aus dem letzten GitHub-Release (Kennung android-<Nr>).
+   * Geprüft wird höchstens alle 6 Stunden (GitHub erlaubt ohne Anmeldung 60 Abfragen pro Stunde) und von Hand. */
+  var BUILD = window.PMP_BUILD || null;
+  var RELEASE_API = 'https://api.github.com/repos/PMP-Lernpartner/pmp-lernpartner.github.io/releases/latest';
+  var APK_URL = 'https://github.com/PMP-Lernpartner/pmp-lernpartner.github.io/releases/latest/download/PMP-Lernpartner.apk';
+  var UPDATE_SPEICHER = 'pmplp.update';
+  var upd = { neu: 0, name: '', geprueft: 0, laeuft: false, fehler: '' };
+  try {
+    var u0 = JSON.parse(localStorage.getItem(UPDATE_SPEICHER) || 'null');
+    if (u0) { upd.neu = Number(u0.neu) || 0; upd.name = u0.name || ''; upd.geprueft = Number(u0.geprueft) || 0; }
+  } catch (e) {}
+  function installiert() { return NATIV && BUILD && Number(BUILD.versionCode) > 0 ? Number(BUILD.versionCode) : 0; }
+  function updateDa() { return installiert() > 0 && upd.neu > installiert(); }
+  function pruefeUpdate(vonHand) {
+    if (!installiert() || upd.laeuft) return Promise.resolve();
+    if (!vonHand && Date.now() - upd.geprueft < 6 * 3600000) return Promise.resolve();
+    upd.laeuft = true; upd.fehler = '';
+    return fetch(RELEASE_API, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } }).then(function (r) {
+      if (!r.ok) throw new Error('GitHub antwortet mit ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      var m = /^android-(\d+)$/.exec((j && j.tag_name) || '');
+      if (!m) throw new Error('Unbekannte Release-Kennung');
+      upd.neu = Number(m[1]); upd.name = j.name || ('Android-App 1.1.' + m[1]); upd.geprueft = Date.now();
+      try { localStorage.setItem(UPDATE_SPEICHER, JSON.stringify({ neu: upd.neu, name: upd.name, geprueft: upd.geprueft })); } catch (e) {}
+    }).catch(function (e) {
+      upd.fehler = String((e && e.message) || e);
+    }).then(function () { upd.laeuft = false; });
+  }
+  function updateHinweis() {
+    if (!updateDa()) return '';
+    return '<section class="karte update"><span class="ueber">Neue Version verfügbar</span>' +
+      '<p><b>' + esc(upd.name) + '</b> steht bereit. Installiert ist ' + esc(BUILD.versionName || ('1.1.' + installiert())) + '.</p>' +
+      '<p class="leise">Die neue Version <b>über die alte installieren</b>, nicht vorher deinstallieren – sonst ist der Lernstand weg. Zur Sicherheit vorher den Lernstand sichern.</p>' +
+      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit klein" data-update-sichern>Lernstand sichern</button>' +
+      '<a class="knopf klein" href="' + APK_URL + '">Neue Version laden</a></div></section>';
+  }
+  function versionsKarte() {
+    if (!NATIV) return '';
+    if (!installiert()) return '<section class="karte"><span class="ueber">Version</span><p>Lern-App ' + APP_VERSION + '</p>' +
+      '<p class="leise">Diese Android-App wurde ohne Versionsnummer gebaut; der Update-Hinweis ist aus.</p></section>';
+    var status = upd.laeuft ? 'Prüfe …' : upd.fehler ? 'Prüfung fehlgeschlagen: ' + esc(upd.fehler)
+      : !upd.geprueft ? 'Noch nicht geprüft.' : updateDa() ? esc(upd.name) + ' ist verfügbar.'
+      : 'Aktuell – geprüft am ' + esc(datumZeit(upd.geprueft)) + '.';
+    return '<section class="karte"><span class="ueber">Version</span><p>Android-App ' + esc(BUILD.versionName || ('1.1.' + installiert())) +
+      ' · Lern-App ' + APP_VERSION + '</p><p class="leise">' + status + '</p>' +
+      '<button class="knopf zweit klein" data-update-pruefen' + (upd.laeuft ? ' disabled' : '') + '>Nach Updates suchen</button></section>';
+  }
+  function bindeUpdate() {
+    var s = app.querySelector('[data-update-sichern]');
+    if (s) s.addEventListener('click', exportiere);
+  }
 
   function erinnerungsText() {
     var d = fragen.map(function (q) { return q.domain; }).filter(Boolean);
@@ -409,7 +464,7 @@
     var gruss = h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
     app.innerHTML = '<main class="seite mit-nav">' + kopfMitZahnrad(marke()) +
       '<div><h1 class="gross">' + gruss + (CFG.NAME ? ', ' + esc(CFG.NAME) : '') + '</h1>' +
-      '<p class="unter">Eine Frage – oder ein paar mehr?</p></div>' + datenHinweis() +
+      '<p class="unter">Eine Frage – oder ein paar mehr?</p></div>' + datenHinweis() + updateHinweis() +
       '<section class="karte"><div class="zeile"><span class="ueber">' + esc(setName(key)) + ' · Quote</span>' +
       '<a class="textknopf" href="#/sets" style="padding:0;min-height:0">Set wechseln</a></div>' +
       '<div style="display:flex;align-items:baseline;gap:8px"><span class="zahl riesig">' + (w.quote == null ? '–' : w.quote + ' %') + '</span>' +
@@ -421,6 +476,7 @@
       '<div class="karte klein"><span class="zahl">' + w.n + '</span><span class="unter">' + (key === 'alle' ? 'Fragen in allen Sets' : 'Fragen in ' + esc(setName(key))) + '</span></div></div>' +
       '<div class="fuss"><a class="knopf gross" href="#/frage">Los ' + IKON.pfeil + '</a>' +
       '<p class="hinweis">Fällige Fehlerfragen kommen zuerst.</p></div></main>' + nav('lernen');
+    bindeUpdate();
   }
 
   function einordnung(q) {
@@ -772,7 +828,7 @@
   function zeigeEinstellungen(meldung) {
     var t = S.theme;
     var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/start">' + IKON.links + 'Zurück</a></div>' +
-      '<h1 class="gross">Einstellungen</h1>' + (meldung || '') +
+      '<h1 class="gross">Einstellungen</h1>' + (meldung || '') + updateHinweis() +
       '<section class="karte"><span class="ueber">Darstellung</span><div class="segment" role="group" aria-label="Farbschema">' +
       [['hell', 'Hell'], ['dunkel', 'Dunkel'], ['auto', 'Auto']].map(function (m) {
         return '<button data-theme="' + m[0] + '" aria-pressed="' + (t === m[0]) + '">' + m[1] + '</button>';
@@ -783,7 +839,7 @@
       '<section class="karte"><span class="ueber">Fragenbank</span><p>' + fragen.length + ' aktive Fragen in ' + setKeys().length + ' Sets</p>' +
       '<p class="leise">' + (datenStand ? 'Geladen am ' + esc(datumZeit(datenStand)) : 'Noch nicht geladen') + (ladeFehler ? ' · letzter Abruf fehlgeschlagen' : '') + '</p>' +
       '<button class="knopf zweit klein" data-neu>Datenquelle neu laden</button></section>' +
-      erinnerungsKarte() +
+      erinnerungsKarte() + versionsKarte() +
       '<p class="leise" style="text-align:center">PMP-Lernpartner ' + APP_VERSION + '</p></main>';
     app.innerHTML = html;
     app.querySelectorAll('[data-theme]').forEach(function (el) {
@@ -791,6 +847,12 @@
     });
     app.querySelector('[data-export]').addEventListener('click', exportiere);
     bindeErinnerungen();
+    bindeUpdate();
+    var up = app.querySelector('[data-update-pruefen]');
+    if (up) up.addEventListener('click', function () {
+      var p = pruefeUpdate(true); zeigeEinstellungen(meldung);
+      p.then(function () { if (aktuelleRoute().name === 'einstellungen') zeigeEinstellungen(meldung); });
+    });
     app.querySelector('[data-import]').addEventListener('change', importiere);
     app.querySelector('[data-neu]').addEventListener('click', function (e) {
       e.target.disabled = true; e.target.textContent = 'Lade …';
@@ -934,6 +996,9 @@
   }
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') planeErinnerungen(false);
+    if (document.visibilityState === 'visible') pruefeUpdate(false).then(function () {
+      var n = aktuelleRoute().name; if (updateDa() && (n === 'start' || n === 'einstellungen')) render();
+    });
     if (document.visibilityState === 'visible' && datenStand && Date.now() - datenStand > 10 * 60000) {
       ladeFragenbank().then(function () { if (aktuelleRoute().name !== 'frage') render(); }, function () {});
     }
@@ -946,7 +1011,9 @@
     if (!ausCache || aktuelleRoute().name !== 'frage') render();
   }, function () { render(); }).then(function () {
     return planeErinnerungen(true);
-  }).then(function () { if (aktuelleRoute().name === 'einstellungen') render(); });
+  }).then(function () { if (aktuelleRoute().name === 'einstellungen') render(); })
+    .then(function () { return pruefeUpdate(false); })
+    .then(function () { var n = aktuelleRoute().name; if (n === 'start' || n === 'einstellungen') render(); });
 
   if (!NATIV && 'serviceWorker' in navigator) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });

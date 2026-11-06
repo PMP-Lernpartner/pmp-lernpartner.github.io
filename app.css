@@ -210,3 +210,7 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 .gut { color: var(--ok-text); } .schwach { color: var(--bad-text); } .offen { color: var(--muted); }
 .meldung.fokus b { font-weight: 600; }
 .app:has(.seite.breit) { max-width: 980px; }
+
+/* Update-Hinweis (Android-App) */
+.karte.update { border-color: var(--accent-text); box-shadow: inset 4px 0 0 var(--accent-text); }
+.karte.update p { margin: 0; }
