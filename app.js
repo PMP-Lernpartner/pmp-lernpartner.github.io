@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '1.3.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -17,21 +17,22 @@
   var DOMAINS = ['Governance', 'Scope', 'Schedule', 'Finance', 'Stakeholders', 'Resources', 'Risk'];
   var FOCUS = ['Initiating', 'Planning', 'Executing', 'Monitoring and Controlling', 'Closing'];
   /* Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain und Focus Area.
-   * Quelle: PMI-Übersicht „PMBOK 8th Edition: Mapping Process Groups to Performance Domains“ (Projektgrundlage Abschnitt 11, Q3). */
+   * Quelle: Übersicht in Andrew Ramdayals aktuellem PMP-Buch, von Sascha als verbindlich festgelegt
+   * (Projektgrundlage Abschnitt 11, Q3, Entscheidung 23). */
   var PROZESSE = {
-    Governance: { Initiating: ['Authorize Project Initiation'], Planning: ['Integrate and Align Project Plans'],
-      Executing: ['Direct and Manage Project Execution', 'Manage Project Knowledge'],
-      'Monitoring and Controlling': ['Monitor and Control Project Performance', 'Manage Project Changes'], Closing: ['Close Project or Phase'] },
-    Scope: { Planning: ['Plan Scope Management', 'Collect Requirements', 'Create WBS', 'Define Scope'],
-      Executing: ['Validate Scope'], 'Monitoring and Controlling': ['Manage and Control Scope'] },
-    Schedule: { Planning: ['Design the Schedule', 'Develop the Schedule'], 'Monitoring and Controlling': ['Maintain the Schedule'] },
-    Finance: { Planning: ['Plan Financial Management', 'Conduct Make-or-Buy Decisions', 'Estimate Costs', 'Determine Budget'],
-      'Monitoring and Controlling': ['Control Finances'] },
+    Governance: { Initiating: ['Initiate Project or Phase'], Planning: ['Integrate and Align Project Plans', 'Plan Sourcing Strategy'],
+      Executing: ['Manage Project Execution', 'Manage Quality Assurance', 'Manage Project Knowledge'],
+      'Monitoring and Controlling': ['Monitor and Control Project Performance', 'Assess and Implement Changes'], Closing: ['Close Project or Phase'] },
+    Scope: { Planning: ['Plan Scope Management', 'Elicit and Analyze Requirements', 'Define Scope', 'Develop Scope Structure'],
+      'Monitoring and Controlling': ['Monitor and Control Scope', 'Validate Scope'] },
+    Schedule: { Planning: ['Plan Schedule Management', 'Develop Schedule'], 'Monitoring and Controlling': ['Monitor and Control Schedule'] },
+    Finance: { Planning: ['Plan Financial Management', 'Estimate Costs', 'Develop Budget'],
+      'Monitoring and Controlling': ['Monitor and Control Finances'] },
     Stakeholders: { Initiating: ['Identify Stakeholders'], Planning: ['Plan Stakeholder Engagement', 'Plan Communications Management'],
-      Executing: ['Manage Sponsor Engagement', 'Manage Stakeholder Engagement', 'Manage Communications'],
+      Executing: ['Manage Stakeholder Engagement', 'Manage Communications'],
       'Monitoring and Controlling': ['Monitor Stakeholder Engagement', 'Monitor Communications'] },
-    Resources: { Planning: ['Plan Resource Management', 'Estimate Activity Resources'], Executing: ['Acquire Resources', 'Lead the Team'],
-      'Monitoring and Controlling': ['Control Resources'] },
+    Resources: { Planning: ['Plan Resource Management', 'Estimate Resources'], Executing: ['Acquire Resources', 'Lead the Team'],
+      'Monitoring and Controlling': ['Monitor and Control Resourcing'] },
     Risk: { Planning: ['Plan Risk Management', 'Identify Risks', 'Perform Risk Analysis', 'Plan Risk Responses'],
       Executing: ['Implement Risk Responses'], 'Monitoring and Controlling': ['Monitor Risks'] },
   };
@@ -764,7 +765,7 @@
       }).join('') + '<div class="zeile summe"><span>Prozesse gesamt</span><span>40</span></div></div></section>' +
       '<section class="karte"><span class="ueber">6 Principles</span><ol class="principles" lang="en">' +
       PRINCIPLES.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></section>' +
-      '<p class="leise">Quelle: PMI, PMBOK Guide 8 – Übersicht „Mapping Process Groups to Performance Domains“. Eigene Darstellung; Focus Areas entsprechen den früheren Process Groups.</p>' +
+      '<p class="leise">Quelle: Prozessübersicht zum PMBOK Guide 8 aus Andrew Ramdayals PMP-Buch. Eigene Darstellung; Focus Areas entsprechen den früheren Process Groups.</p>' +
       '</main>' + nav('uebersicht');
   }
 
