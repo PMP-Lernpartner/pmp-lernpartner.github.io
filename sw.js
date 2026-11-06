@@ -1,6 +1,6 @@
 /* PMP-Lernpartner – Service Worker: App-Dateien offline verfügbar, online immer frisch. */
-const CACHE = 'pmplp-v6';
-const DATEIEN = ['./', 'index.html', 'app.css?v=4', 'config.js?v=2', 'app.js?v=4', 'manifest.webmanifest',
+const CACHE = 'pmplp-v7';
+const DATEIEN = ['./', 'index.html', 'app.css?v=5', 'config.js?v=2', 'app.js?v=5', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

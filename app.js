@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.1, 06.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.4.0, 07.11.2026)
  * Liest die veröffentlichte Fragenbank (CSV), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
  * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.3.1';
+  var APP_VERSION = '1.4.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -48,7 +48,8 @@
   var ladeFehler = '';
   var sitzung = { id: null, phase: 'frage', antwort: null, vorher: null, quelle: 'lernen', durch: false };
   var vorrat = { stand: 0, laedt: false, bereit: null, fehler: '', meldung: '' };
-  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {} };
+  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {}, uebModus: 'prozesse', evTeil: 'merkhilfe',
+    rechner: { bac: '10000', plan: '40', fertig: '50', ac: '4000', zeit: '', dauer: '' } };
 
   function ladeZustand() {
     var s = {};
@@ -810,8 +811,324 @@
     return html;
   }
 
+  /* ---------- Earned Value (Reiter Übersicht, seit Lern-App 1.4.0) ----------
+   * Formeln und Szenario-Muster nach Andrew Ramdayals PMP-Buch (Kap. 9), von Sascha als Quelle festgelegt
+   * (Projektgrundlage, Entscheidung 26). Beispiele und Texte sind eigene. Gerechnet wird exakt (EAC = BAC × AC / EV),
+   * angezeigt auf 2 Stellen (Entscheidung 27). In Langformen markiert [x] den Buchstaben der Abkürzung. */
+  var EV_KZ = [
+    { k: 'BAC', lang: '[B]udget [a]t [C]ompletion', de: 'Gesamtbudget des Projekts', formel: 'gegeben', art: 'geld', gruppe: 'basis' },
+    { k: 'PV', lang: '[P]lanned [V]alue', de: 'Soll-Wert: Arbeit, die bis heute geplant war', formel: 'PV = BAC × geplant %', art: 'geld', gruppe: 'basis' },
+    { k: 'EV', lang: '[E]arned [V]alue', de: 'Fertigwert: Arbeit, die wirklich erledigt ist', formel: 'EV = BAC × fertig %', art: 'geld', gruppe: 'basis' },
+    { k: 'AC', lang: '[A]ctual [C]ost', de: 'Ist-Kosten: bisher ausgegeben', formel: 'gegeben', art: 'geld', gruppe: 'basis' },
+    { k: 'CV', lang: '[C]ost [V]ariance', de: 'Kostenabweichung', formel: 'CV = EV − AC', art: 'abw', gruppe: 'abw',
+      regel: 'positiv = unter Budget · 0 = im Budget · negativ = über Budget' },
+    { k: 'SV', lang: '[S]chedule [V]ariance', de: 'Terminabweichung', formel: 'SV = EV − PV', art: 'abw', gruppe: 'abw',
+      regel: 'positiv = voraus · 0 = im Plan · negativ = hinter Plan' },
+    { k: 'CPI', lang: '[C]ost [P]erformance [I]ndex', de: 'Kosteneffizienz', formel: 'CPI = EV / AC', art: 'idx', gruppe: 'idx',
+      regel: 'über 1 = unter Budget · 1 = im Budget · unter 1 = über Budget' },
+    { k: 'SPI', lang: '[S]chedule [P]erformance [I]ndex', de: 'Termineffizienz', formel: 'SPI = EV / PV', art: 'idx', gruppe: 'idx',
+      regel: 'über 1 = voraus · 1 = im Plan · unter 1 = hinter Plan' },
+    { k: 'EAC', lang: '[E]stimate [a]t [C]ompletion', de: 'Prognose der Gesamtkosten am Ende', formel: 'EAC = BAC / CPI', art: 'geld', gruppe: 'prog',
+      regel: 'Fragt die Prüfung nach dem „forecast“, ist der EAC gemeint.' },
+    { k: 'ETC', lang: '[E]stimate [t]o [C]omplete', de: 'Prognose der Restkosten ab heute', formel: 'ETC = EAC − AC', art: 'geld', gruppe: 'prog',
+      regel: 'So viel Geld braucht das Projekt ab heute noch.' },
+    { k: 'VAC', lang: '[V]ariance [a]t [C]ompletion', de: 'Abweichung am Ende: Budget minus Prognose', formel: 'VAC = BAC − EAC', art: 'abw', gruppe: 'prog',
+      regel: 'positiv = Geld bleibt übrig · negativ = Geld fehlt' },
+    { k: 'TCPI', lang: '[T]o-[C]omplete [P]erformance [I]ndex', de: 'nötige Kosteneffizienz für die Restarbeit', formel: 'TCPI = (BAC − EV) / (BAC − AC)', art: 'idx', gruppe: 'prog',
+      regel: 'unter 1 = leichter · 1 = genau wie geplant · über 1 = schwerer (hier ist klein gut)' },
+  ];
+  var EV_GRUPPEN = [['basis', 'Grundwerte'], ['abw', 'Abweichungen (Variance = minus)'], ['idx', 'Indizes (Index = geteilt)'], ['prog', 'Prognosen (Forecast)']];
+  var EV_BAUSTEINE = [
+    ['…V', 'Value', 'Wert in Geld', 'PV, EV'],
+    ['P', 'Planned', 'geplant, Soll', 'PV'],
+    ['E (Wert)', 'Earned', 'verdient, geschafft', 'EV'],
+    ['AC allein', 'Actual Cost', 'tatsächlich ausgegeben', 'AC'],
+    ['…AC am Ende', 'at Completion', 'am Projektende', 'BAC, EAC, VAC'],
+    ['C… / S…', 'Cost / Schedule', 'Kosten / Termin', 'CV, CPI / SV, SPI'],
+    ['V', 'Variance', 'Abweichung → minus', 'CV, SV, VAC'],
+    ['PI', 'Performance Index', 'Kennzahl → geteilt', 'CPI, SPI, TCPI'],
+    ['E (Zukunft)', 'Estimate', 'Schätzung, Prognose', 'EAC, ETC'],
+    ['TC', 'To Complete', 'ab heute bis zum Ende', 'ETC, TCPI'],
+  ];
+  /* Vier eigene Beispiele nach den vier Mustern aus dem Buch; Zahlen so gewählt, dass EAC glatt aufgeht. */
+  var EV_SZENARIEN = [
+    { nr: 1, titel: 'Voraus und unter Budget', ton: 'gut', projekt: 'Website-Relaunch', einheit: 'Wochen',
+      bac: 10000, zeit: 4, dauer: 10, fertig: 50, ac: 4000,
+      deutung: 'Mehr geschafft als geplant und dafür weniger ausgegeben – beide Indizes 1,25. Bleibt es so, kostet das Projekt nur 8.000 € statt 10.000 €. Für den Rest genügt eine Effizienz von 0,83 (TCPI unter 1 = leichter).' },
+    { nr: 2, titel: 'Knapp hinter Plan, knapp über Budget', ton: 'schwach', projekt: 'CRM-Einführung', einheit: 'Monate',
+      bac: 24000, zeit: 6, dauer: 12, fertig: 48, ac: 12000,
+      deutung: 'Beide Indizes 0,96 – klingt harmlos, ergibt am Ende aber 1.000 € Mehrkosten (VAC −1.000). Für den Rest muss das Team 4 % effizienter arbeiten als geplant (TCPI 1,04).' },
+    { nr: 3, titel: 'Voraus, aber über Budget', ton: 'schwach', projekt: 'Hallenbeleuchtung', einheit: 'Monate',
+      bac: 8000, zeit: 5, dauer: 10, fertig: 75, ac: 7500,
+      deutung: 'Weit voraus (SPI 1,50), aber zu teuer (CPI 0,80). Vom Budget sind nur noch 500 € übrig, offen ist aber Arbeit im Wert von 2.000 €. TCPI 4,00 heißt: Der Rest müsste viermal so effizient laufen wie geplant – realistisch geht das nur mit mehr Budget.' },
+    { nr: 4, titel: 'Weit hinter Plan und weit über Budget', ton: 'schwach', projekt: 'Rechenzentrums-Umzug', einheit: 'Monate',
+      bac: 50000, zeit: 12, dauer: 20, fertig: 30, ac: 30000,
+      deutung: 'Nur halb so viel geschafft wie geplant (SPI 0,50) und das zum doppelten Preis (CPI 0,50). Die Prognose liegt bei 100.000 €, dem Doppelten des Budgets. TCPI 1,75: Der Rest müsste 75 % effizienter laufen als geplant.' },
+  ];
+  var trainer = { stapel: null, auf: false, richtung: 'kurz', gewusst: 0, versuche: 0 };
+
+  function evRechne(e) {
+    var bac = e.bac, pv = bac * e.plan / 100, ev = bac * e.fertig / 100, ac = e.ac;
+    var r = { BAC: bac, PV: pv, EV: ev, AC: ac, CV: ev - ac, SV: ev - pv };
+    r.CPI = ac > 0 ? ev / ac : null;
+    r.SPI = pv > 0 ? ev / pv : null;
+    r.EAC = r.CPI ? bac / r.CPI : null;
+    r.ETC = r.EAC == null ? null : r.EAC - ac;
+    r.VAC = r.EAC == null ? null : bac - r.EAC;
+    r.TCPI = bac - ac > 0 ? (bac - ev) / (bac - ac) : null;
+    return r;
+  }
+  function evRund(x) { return Math.round(x * 100) / 100; }
+  function evZahl(x, art) {
+    if (x == null || !isFinite(x)) return '–';
+    var r = evRund(x);
+    if (art === 'idx') return r.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    var t = r.toLocaleString('de-DE', { minimumFractionDigits: r % 1 ? 2 : 0, maximumFractionDigits: 2 });
+    return art === 'abw' && r > 0 ? '+' + t : t;
+  }
+  function evVgl(x, ref) { var r = evRund(x); return r > ref ? 1 : r < ref ? -1 : 0; }
+  function evDeutung(k, r) {
+    var v = r[k], c;
+    if (v == null || !isFinite(v)) return ['', k === 'TCPI' ? 'nicht berechenbar: Budget aufgebraucht (BAC − AC ≤ 0)' : 'nicht berechenbar'];
+    var drei = function (c, plus, null0, minus) { return [c > 0 ? 'gut' : c < 0 ? 'schwach' : '', c > 0 ? plus : c < 0 ? minus : null0]; };
+    switch (k) {
+      case 'BAC': return ['', 'Gesamtbudget'];
+      case 'PV': return ['', 'Soll bis heute'];
+      case 'EV': return ['', 'geschafft bis heute'];
+      case 'AC': return ['', 'ausgegeben bis heute'];
+      case 'CV': return drei(evVgl(v, 0), 'unter Budget', 'genau im Budget', 'über Budget');
+      case 'SV': return drei(evVgl(v, 0), 'voraus', 'genau im Plan', 'hinter Plan');
+      case 'CPI': c = evVgl(v, 1);
+        return drei(c, 'unter Budget: je 1 € Kosten ' + evZahl(v, 'idx') + ' € Wert', 'genau im Budget', 'über Budget: je 1 € Kosten nur ' + evZahl(v, 'idx') + ' € Wert');
+      case 'SPI': c = evVgl(v, 1);
+        return drei(c, 'voraus: ' + evZahl(v * 100) + ' % des geplanten Fortschritts', 'genau im Plan', 'hinter Plan: nur ' + evZahl(v * 100) + ' % des geplanten Fortschritts');
+      case 'EAC': return drei(-evVgl(v - r.BAC, 0), 'Prognose unter Budget', 'Prognose genau im Budget', 'Prognose über Budget');
+      case 'ETC': return ['', 'noch nötig ab heute'];
+      case 'VAC': return drei(evVgl(v, 0), 'bleibt am Ende übrig', 'Punktlandung', 'fehlt am Ende');
+      case 'TCPI': return drei(-evVgl(v, 1), 'Rest darf weniger effizient laufen', 'Rest genau wie geplant', 'Rest muss effizienter laufen als geplant');
+    }
+    return ['', ''];
+  }
+  function evRechnung(k, e, r) {
+    var z = function (x) { return evZahl(x); };
+    switch (k) {
+      case 'PV': return z(e.bac) + ' × ' + (e.planText || z(e.plan) + ' %');
+      case 'EV': return z(e.bac) + ' × ' + z(e.fertig) + ' %';
+      case 'CV': return z(r.EV) + ' − ' + z(r.AC);
+      case 'SV': return z(r.EV) + ' − ' + z(r.PV);
+      case 'CPI': return z(r.EV) + ' / ' + z(r.AC);
+      case 'SPI': return z(r.EV) + ' / ' + z(r.PV);
+      case 'EAC': return z(r.BAC) + ' / ' + evZahl(r.CPI, 'idx');
+      case 'ETC': return z(r.EAC) + ' − ' + z(r.AC);
+      case 'VAC': return z(r.BAC) + ' − ' + z(r.EAC);
+      case 'TCPI': return '(' + z(r.BAC) + ' − ' + z(r.EV) + ') / (' + z(r.BAC) + ' − ' + z(r.AC) + ')';
+    }
+    return '';
+  }
+  function evLang(s, marke) { return esc(s).replace(/\[([^\]]+)\]/g, marke ? '<b>$1</b>' : '$1'); }
+
+  function evErgebnisHtml(e) {
+    var r = evRechne(e);
+    var html = '<div class="ev-erg">' + EV_KZ.map(function (x) {
+      var d = evDeutung(x.k, r), rech = evRechnung(x.k, e, r);
+      return '<div class="ev-zeile"><span class="ev-abk">' + x.k + '</span><span><span class="lang" lang="en">' + evLang(x.lang, false) + '</span>' +
+        '<span class="rechnung">' + esc(x.formel) + (rech ? ' = ' + esc(rech) : '') + '</span></span>' +
+        '<span class="wert">' + evZahl(r[x.k], x.art) + '</span>' +
+        '<span class="deutung"><span class="tag ' + d[0] + '">' + esc(d[1]) + '</span></span></div>';
+    }).join('') + '</div>';
+    if (r.CPI && r.EAC != null) {
+      var buch = r.BAC / evRund(r.CPI);
+      if (Math.abs(buch - r.EAC) >= 0.005) {
+        html += '<p class="leise">Gerechnet mit dem ungerundeten CPI. Mit dem auf zwei Stellen gerundeten CPI (' + evZahl(r.CPI, 'idx') + ') ergäbe sich ein EAC von ' +
+          evZahl(buch) + ' – eine reine Rundungsdifferenz.</p>';
+      }
+    }
+    return html;
+  }
+
+  function evMerkhilfeHtml() {
+    var html = '<section class="karte"><span class="ueber">Das Grundbild: PEA</span>' +
+      '<div class="ev-pea"><div class="ev-kachel"><b>PV</b><span lang="en">Planned Value</span><small>Soll</small></div>' +
+      '<div class="ev-kachel mitte"><b>EV</b><span lang="en">Earned Value</span><small>geschafft</small></div>' +
+      '<div class="ev-kachel"><b>AC</b><span lang="en">Actual Cost</span><small>ausgegeben</small></div></div>' +
+      '<div class="ev-wege"><div><b>Termin</b><span>EV mit PV vergleichen → SV, SPI</span></div>' +
+      '<div><b>Kosten</b><span>EV mit AC vergleichen → CV, CPI</span></div>' +
+      '<div><b>Prognose</b><span>aus dem CPI → EAC → ETC → VAC; TCPI für den Rest</span></div></div>' +
+      '<p class="leise">Merkwort <b>PEA</b> (englisch „Erbse“): PV · EV · AC. Das E steht in der Mitte, weil EV in fast jeder Formel vorkommt.</p></section>';
+    html += '<section class="karte"><span class="ueber">Sieben Regeln</span><ol class="ev-regeln">' +
+      '<li><b>Variance</b> ist eine Differenz, also <b>minus</b>. <b>Index</b> ist ein Verhältnis, also <b>geteilt</b>.</li>' +
+      '<li>Bei CV, SV, CPI und SPI steht <b>EV immer vorn</b>: EV − …, EV / …</li>' +
+      '<li><b>C</b>ost vergleicht EV mit <b>AC</b>, <b>S</b>chedule vergleicht EV mit <b>PV</b>.</li>' +
+      '<li>Positiv bzw. über 1 ist gut – <b>außer beim TCPI</b>: Dort ist unter 1 gut.</li>' +
+      '<li>Falle: <b>AC allein</b> = Actual Cost. <b>…AC am Ende</b> (BAC, EAC, VAC) = at Completion.</li>' +
+      '<li>Geplant % nicht angegeben? <b>Vergangene Zeit / Gesamtdauer</b>.</li>' +
+      '<li>Prognosen bauen aufeinander auf: <b>EAC → ETC → VAC</b>.</li></ol></section>';
+    html += '<section class="karte"><span class="ueber">Bausteine der Abkürzungen</span><div class="matrix-rahmen ev-rahmen"><table class="ev-tabelle"><thead><tr><th>Teil</th><th>heißt</th><th>bedeutet</th></tr></thead><tbody>' +
+      EV_BAUSTEINE.map(function (b) {
+        return '<tr><td><b>' + esc(b[0]) + '</b></td><td lang="en">' + esc(b[1]) + '</td><td>' + esc(b[2]) + '<span class="in">in ' + esc(b[3]) + '</span></td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    EV_GRUPPEN.forEach(function (g) {
+      html += '<section class="karte"><span class="ueber">' + esc(g[1]) + '</span><div>' +
+        EV_KZ.filter(function (x) { return x.gruppe === g[0]; }).map(function (x) {
+          return '<div class="ev-kz"><div class="kopfzeile"><span class="ev-abk">' + x.k + '</span><span class="ev-lang" lang="en">' + evLang(x.lang, true) + '</span></div>' +
+            '<span>' + esc(x.de) + '</span><span class="ev-formel">' + esc(x.formel === 'gegeben' ? x.k + ': gegeben' : x.formel) + '</span>' +
+            (x.regel ? '<span class="leise">' + esc(x.regel) + '</span>' : '') + '</div>';
+        }).join('') + '</div></section>';
+    });
+    return html;
+  }
+
+  function evBeispieleHtml() {
+    return '<p class="leise">Vier Lagen, die in der Prüfung typisch sind. Erst selbst rechnen, dann vergleichen.</p>' +
+      EV_SZENARIEN.map(function (s) {
+        var e = { bac: s.bac, plan: s.zeit / s.dauer * 100, planText: s.zeit + '/' + s.dauer, fertig: s.fertig, ac: s.ac };
+        return '<section class="karte"><div class="zeile"><span class="ueber">Szenario ' + s.nr + '</span><span class="tag ' + s.ton + '">' + esc(s.titel) + '</span></div>' +
+          '<p><b>' + esc(s.projekt) + ':</b> Budget ' + evZahl(s.bac) + ' €, Dauer ' + s.dauer + ' ' + s.einheit + '. Heute ist das Ende von ' +
+          (s.einheit === 'Wochen' ? 'Woche ' : 'Monat ') + s.zeit + '. Fertig sind ' + s.fertig + ' %, ausgegeben ' + evZahl(s.ac) + ' €.</p>' +
+          '<p class="leise">Geplant % = ' + s.zeit + ' / ' + s.dauer + ' = ' + evZahl(e.plan) + ' %</p>' +
+          '<details class="ev-loesung"><summary>Lösung zeigen</summary>' + evErgebnisHtml(e) +
+          '<p class="ev-deutung">' + esc(s.deutung) + '</p>' +
+          '<button class="knopf zweit klein" data-ev-szenario="' + s.nr + '">Im Rechner öffnen</button></details></section>';
+      }).join('');
+  }
+
+  function evZahlLesen(t) {
+    t = String(t == null ? '' : t).replace(/\s|€|%/g, '');
+    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');   // 1.500 = Tausenderpunkt
+    var n = parseFloat(t);
+    return isFinite(n) ? n : null;
+  }
+  function evRechnerWerte() {
+    var w = ui.rechner, z = evZahlLesen(w.zeit), d = evZahlLesen(w.dauer);
+    var e = { bac: evZahlLesen(w.bac), plan: evZahlLesen(w.plan), fertig: evZahlLesen(w.fertig), ac: evZahlLesen(w.ac) };
+    if (z != null && d > 0) { e.plan = z / d * 100; e.planText = evZahl(z) + '/' + evZahl(d); }   // exakt, nicht der gerundete Feldwert
+    return e;
+  }
+  function evRechnerErgebnis() {
+    var e = evRechnerWerte();
+    if (e.bac == null || e.plan == null || e.fertig == null || e.ac == null) return '<p class="leise">Bitte BAC, geplant %, fertig % und AC eintragen.</p>';
+    if (e.bac <= 0) return '<p class="leise">Das Budget (BAC) muss größer als 0 sein.</p>';
+    return evErgebnisHtml(e);
+  }
+  function evRechnerHtml() {
+    var w = ui.rechner;
+    var feld = function (name, label, wert, hilfe) {
+      return '<label>' + label + '<input type="text" inputmode="decimal" autocomplete="off" data-ev-feld="' + name + '" value="' + esc(wert) + '"' +
+        (hilfe ? ' placeholder="' + esc(hilfe) + '"' : '') + '></label>';
+    };
+    return '<section class="karte"><span class="ueber">Eingaben</span><div class="ev-eingabe">' +
+      feld('bac', 'BAC · Budget at Completion', w.bac) + feld('ac', 'AC · Actual Cost', w.ac) +
+      feld('plan', 'Geplant % (für PV)', w.plan) + feld('fertig', 'Fertig % (für EV)', w.fertig) + '</div>' +
+      '<p class="leise">Geplant % nicht bekannt? Aus der Zeit berechnen:</p><div class="ev-eingabe">' +
+      feld('zeit', 'Zeit vergangen', w.zeit, 'z. B. 4') + feld('dauer', 'Dauer gesamt', w.dauer, 'z. B. 10') + '</div></section>' +
+      '<section class="karte"><span class="ueber">Ergebnis</span><div data-ev-ergebnis>' + evRechnerErgebnis() + '</div></section>' +
+      '<p class="leise">Rechnet exakt und zeigt zwei Nachkommastellen. Werte ohne Währung; Punkt oder Komma als Dezimalzeichen.</p>';
+  }
+
+  function mische(l) {
+    for (var i = l.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = l[i]; l[i] = l[j]; l[j] = t; }
+    return l;
+  }
+  function trainerNeu() {
+    trainer.stapel = mische(EV_KZ.map(function (x) { return x.k; }));
+    trainer.auf = false; trainer.gewusst = 0; trainer.versuche = 0;
+  }
+  function evTrainerHtml() {
+    if (!trainer.stapel) trainerNeu();
+    var html = '<div class="segment" role="group" aria-label="Richtung"><button data-ev-richtung="kurz" aria-pressed="' + (trainer.richtung === 'kurz') + '">Abkürzung → Langform</button>' +
+      '<button data-ev-richtung="lang" aria-pressed="' + (trainer.richtung === 'lang') + '">Langform → Abkürzung</button></div>';
+    if (!trainer.stapel.length) {
+      return html + '<section class="ev-karte"><span class="mittel">Alle 12 sitzen.</span><span class="frage">' + trainer.versuche + ' Karten aufgedeckt für 12 Abkürzungen.</span></section>' +
+        '<button class="knopf" data-ev-trainer="neu">Neue Runde</button>';
+    }
+    var x = EV_KZ.filter(function (y) { return y.k === trainer.stapel[0]; })[0];
+    var vorn = trainer.richtung === 'kurz'
+      ? '<span class="gross">' + x.k + '</span><span class="frage">Wie heißt das ausgeschrieben – und was bedeutet es?</span>'
+      : '<span class="mittel" lang="en">' + evLang(x.lang, false) + '</span><span class="frage">Welche Abkürzung? Und die Formel?</span>';
+    var hinten = trainer.auf ? '<div class="ev-rueck"><span class="gross">' + x.k + '</span><span class="ev-lang" lang="en">' + evLang(x.lang, true) + '</span>' +
+      '<span>' + esc(x.de) + '</span><span class="ev-formel">' + esc(x.formel === 'gegeben' ? x.k + ': gegeben' : x.formel) + '</span></div>' : '';
+    html += '<div class="ev-fortschritt"><span>' + trainer.gewusst + ' von 12 gewusst</span><span>noch ' + trainer.stapel.length + ' Karten</span></div>' +
+      '<section class="ev-karte">' + (trainer.auf ? hinten : vorn) + '</section>';
+    html += trainer.auf
+      ? '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit" data-ev-trainer="nochmal">Nochmal</button><button class="knopf" data-ev-trainer="gewusst">Gewusst</button></div>'
+      : '<button class="knopf" data-ev-trainer="auf">Auflösen</button>';
+    return html + '<p class="leise">Erst im Kopf beantworten, dann auflösen. „Nochmal“ legt die Karte etwas weiter nach hinten. Der Trainer zählt nicht zum Lernstand.</p>';
+  }
+
+  function evHtml() {
+    var teile = [['merkhilfe', 'Merkhilfe'], ['beispiele', 'Beispiele'], ['rechner', 'Rechner'], ['trainer', 'Trainer']];
+    var inhalt = ui.evTeil === 'beispiele' ? evBeispieleHtml() : ui.evTeil === 'rechner' ? evRechnerHtml() : ui.evTeil === 'trainer' ? evTrainerHtml() : evMerkhilfeHtml();
+    return '<div class="segment ev-teile" role="group" aria-label="Earned Value">' + teile.map(function (t) {
+      return '<button data-ev-teil="' + t[0] + '" aria-pressed="' + (ui.evTeil === t[0]) + '">' + t[1] + '</button>';
+    }).join('') + '</div>' + inhalt +
+      '<p class="leise">Quelle: Earned-Value-Formeln und die vier Szenario-Muster nach Andrew Ramdayals PMP-Buch (Kapitel 9). Beispiele, Zahlen und Texte sind eigene.</p>';
+  }
+
+  function bindeEv() {
+    app.querySelectorAll('[data-ev-teil]').forEach(function (el) {
+      el.addEventListener('click', function () { ui.evTeil = el.getAttribute('data-ev-teil'); render(); window.scrollTo(0, 0); });
+    });
+    app.querySelectorAll('[data-ev-szenario]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var s = EV_SZENARIEN[+el.getAttribute('data-ev-szenario') - 1];
+        ui.rechner = { bac: String(s.bac), plan: String(evRund(s.zeit / s.dauer * 100)), fertig: String(s.fertig), ac: String(s.ac), zeit: String(s.zeit), dauer: String(s.dauer) };
+        ui.evTeil = 'rechner'; render(); window.scrollTo(0, 0);
+      });
+    });
+    app.querySelectorAll('[data-ev-feld]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var name = el.getAttribute('data-ev-feld');
+        ui.rechner[name] = el.value;
+        if (name === 'plan') {   // geplant % von Hand: Zeitangaben gelten nicht mehr
+          ui.rechner.zeit = ''; ui.rechner.dauer = '';
+          app.querySelectorAll('[data-ev-feld="zeit"], [data-ev-feld="dauer"]').forEach(function (f) { f.value = ''; });
+        }
+        if (name === 'zeit' || name === 'dauer') {
+          var z = evZahlLesen(ui.rechner.zeit), d = evZahlLesen(ui.rechner.dauer);
+          if (z != null && d > 0) {
+            ui.rechner.plan = String(evRund(z / d * 100)).replace('.', ',');
+            var p = app.querySelector('[data-ev-feld="plan"]'); if (p) p.value = ui.rechner.plan;
+          }
+        }
+        var erg = app.querySelector('[data-ev-ergebnis]');
+        if (erg) erg.innerHTML = evRechnerErgebnis();
+      });
+    });
+    app.querySelectorAll('[data-ev-richtung]').forEach(function (el) {
+      el.addEventListener('click', function () { trainer.richtung = el.getAttribute('data-ev-richtung'); trainer.auf = false; render(); });
+    });
+    app.querySelectorAll('[data-ev-trainer]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var a = el.getAttribute('data-ev-trainer');
+        if (a === 'neu') trainerNeu();
+        else if (a === 'auf') { trainer.auf = true; trainer.versuche++; }
+        else if (a === 'gewusst') { trainer.stapel.shift(); trainer.gewusst++; trainer.auf = false; }
+        else if (a === 'nochmal') { var k = trainer.stapel.shift(); trainer.stapel.splice(Math.min(3, trainer.stapel.length), 0, k); trainer.auf = false; }
+        render();
+      });
+    });
+  }
+
   function zeigeUebersicht() {
-    app.innerHTML = '<main class="seite mit-nav breit">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') +
+    var umschalter = '<div class="segment" role="group" aria-label="Übersicht"><button data-ueb="prozesse" aria-pressed="' + (ui.uebModus !== 'ev') + '">Prozesse</button>' +
+      '<button data-ueb="ev" aria-pressed="' + (ui.uebModus === 'ev') + '">Earned Value</button></div>';
+    if (ui.uebModus === 'ev') {
+      app.innerHTML = '<main class="seite mit-nav">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter + evHtml() + '</main>' + nav('uebersicht');
+      bindeUeb(); bindeEv();
+      return;
+    }
+    zeigeProzessUebersicht(umschalter);
+    bindeUeb();
+  }
+  function bindeUeb() {
+    app.querySelectorAll('[data-ueb]').forEach(function (el) {
+      el.addEventListener('click', function () { ui.uebModus = el.getAttribute('data-ueb'); render(); window.scrollTo(0, 0); });
+    });
+  }
+
+  function zeigeProzessUebersicht(umschalter) {
+    app.innerHTML = '<main class="seite mit-nav breit">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter +
       '<p class="leise">Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain (Zeilen) und Focus Area (Spalten). Seitlich wischen; quer gehalten passt mehr aufs Display.</p>' +
       matrixHtml() +
       '<section class="karte"><span class="ueber">Verteilung</span><div class="verteilung">' +
@@ -1020,5 +1337,6 @@
   }
 
   /* Für Tests im Browser */
-  window.__pmp = { parseCsv: parseCsv, waehleFrage: waehleFrage, zustand: function () { return S; } };
+  window.__pmp = { parseCsv: parseCsv, waehleFrage: waehleFrage, zustand: function () { return S; },
+    evRechne: evRechne, evZahl: evZahl, evDeutung: evDeutung, EV_KZ: EV_KZ, EV_SZENARIEN: EV_SZENARIEN };
 })();

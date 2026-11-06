@@ -214,3 +214,58 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 /* Update-Hinweis (Android-App) */
 .karte.update { border-color: var(--accent-text); box-shadow: inset 4px 0 0 var(--accent-text); }
 .karte.update p { margin: 0; }
+
+/* Earned Value (Reiter Übersicht, Lern-App 1.4.0) */
+.ev-teile button { font-size: 13px; padding: 0 2px; }
+.ev-pea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ev-kachel { border: 1px solid var(--border); border-radius: 12px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; gap: 2px; background: var(--sunken); min-width: 0; }
+.ev-kachel b { font-family: var(--head); font-size: 24px; line-height: 1.1; }
+.ev-kachel span { font-size: 12px; }
+.ev-kachel small { font-size: 12px; color: var(--muted); }
+.ev-kachel.mitte { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ev-kachel.mitte small { color: rgba(255,255,255,.85); }
+.ev-wege { display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.4; }
+.ev-wege div { display: flex; gap: 10px; align-items: baseline; }
+.ev-wege b { flex: none; width: 72px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-text); }
+.ev-regeln { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.45; }
+.ev-regeln b, .ev-tabelle b { font-weight: 600; }
+.ev-rahmen { border-radius: 12px; }
+.ev-tabelle { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ev-tabelle th, .ev-tabelle td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ev-tabelle th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; background: var(--sunken); }
+.ev-tabelle tr:last-child td { border-bottom: 0; }
+.ev-kz { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.ev-kz:first-child { padding-top: 0; }
+.ev-kz:last-child { border-bottom: 0; padding-bottom: 0; }
+.ev-kz .kopfzeile { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ev-abk { font-family: var(--head); font-weight: 700; font-size: 20px; color: var(--accent-text); min-width: 50px; }
+.ev-lang { font-size: 15px; font-weight: 500; }
+.ev-lang b { color: var(--accent-text); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.ev-formel { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; background: var(--sunken); border-radius: 8px; padding: 4px 8px; align-self: flex-start; }
+.ev-eingabe { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ev-eingabe label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.ev-eingabe input { min-height: 44px; border: 1.5px solid var(--strong); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; padding: 0 10px; width: 100%; min-width: 0; }
+.ev-erg { display: flex; flex-direction: column; }
+.ev-zeile { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.ev-zeile:last-child { border-bottom: 0; }
+.ev-zeile .ev-abk { font-size: 16px; min-width: 0; }
+.ev-zeile .lang { display: block; font-size: 12px; color: var(--muted); }
+.ev-zeile .rechnung { display: block; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ev-zeile .wert { font-family: var(--head); font-weight: 600; font-size: 17px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ev-zeile .deutung { grid-column: 2 / 4; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; background: var(--sunken); color: var(--muted); line-height: 1.4; }
+.tag.gut { background: var(--ok-bg); color: var(--ok-text); }
+.tag.schwach { background: var(--bad-bg); color: var(--bad-text); }
+.ev-loesung summary { cursor: pointer; color: var(--accent-text); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.ev-loesung[open] { display: flex; flex-direction: column; gap: 10px; }
+.ev-deutung { font-size: 14px; line-height: 1.5; border-left: 3px solid var(--accent-text); padding-left: 10px; }
+.ev-karte { min-height: 210px; border: 1.5px solid var(--strong); border-radius: 20px; background: var(--surface); padding: 22px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; }
+.ev-karte .gross, .ev-rueck .gross { font-family: var(--head); font-size: 44px; font-weight: 700; color: var(--accent-text); line-height: 1; }
+.ev-karte .mittel { font-family: var(--head); font-size: 22px; font-weight: 600; line-height: 1.25; }
+.ev-karte .frage { font-size: 13px; color: var(--muted); }
+.ev-rueck { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 15px; }
+.ev-rueck .ev-formel { align-self: center; }
+.ev-fortschritt { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.ev-tabelle .in { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.karte .zeile .ueber { white-space: nowrap; }
+.karte .zeile .tag { text-align: right; }
