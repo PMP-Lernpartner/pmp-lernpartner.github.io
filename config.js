@@ -9,7 +9,7 @@
  */
 window.PMP_CONFIG = {
   CSV_URL: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSNg_9DgnpYeuI0kDTvlcmqKWKYrJKQnpD-zffryD6gUDRcYiY98530lgEvqBO10MvmIpjs58sbQfXJ/pub?gid=854900195&single=true&output=csv',
-  API_URL: '',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwQugDlxVeVI8LGsEk419AK6dD5CPvXuThepb6dbcQjo24WouBW9OqppZ1lhH5yHGQ2rw/exec',
   API_KEY: '7Z9qeOPXhi44SL9w5oDuRIQYbmT8iDE0',
   NAME: 'Sascha',
   NTFY_THEMA: 'pmp-lp-3shh1tg5l89cull13769pwvr',
