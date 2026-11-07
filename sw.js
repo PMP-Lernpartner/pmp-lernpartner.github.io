@@ -1,7 +1,10 @@
 /* PMP-Lernpartner – Service Worker: App-Dateien offline verfügbar, online immer frisch. */
-const CACHE = 'pmplp-v7';
-const DATEIEN = ['./', 'index.html', 'app.css?v=5', 'config.js?v=2', 'app.js?v=5', 'manifest.webmanifest',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
+const CACHE = 'pmplp-v8';
+const DATEIEN = ['./', 'index.html', 'app.css?v=6', 'config.js?v=2', 'app.js?v=6', 'manifest.webmanifest',
+  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'fonts/inter-latin-400-normal.woff2', 'fonts/inter-latin-500-normal.woff2', 'fonts/inter-latin-600-normal.woff2',
+  'fonts/inter-latin-700-normal.woff2', 'fonts/space-grotesk-latin-500-normal.woff2', 'fonts/space-grotesk-latin-600-normal.woff2',
+  'fonts/space-grotesk-latin-700-normal.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(DATEIEN)).then(() => self.skipWaiting()));

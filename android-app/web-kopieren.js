@@ -12,6 +12,10 @@ fs.mkdirSync(path.join(ziel, 'icons'), { recursive: true });
 dateien.forEach((d) => fs.copyFileSync(path.join(quelle, d), path.join(ziel, d)));
 fs.readdirSync(path.join(quelle, 'icons')).forEach((d) =>
   fs.copyFileSync(path.join(quelle, 'icons', d), path.join(ziel, 'icons', d)));
+// Schriften lokal (seit Lern-App 1.5.0)
+fs.mkdirSync(path.join(ziel, 'fonts'), { recursive: true });
+fs.readdirSync(path.join(quelle, 'fonts')).forEach((d) =>
+  fs.copyFileSync(path.join(quelle, 'fonts', d), path.join(ziel, 'fonts', d)));
 // Versionsnummer der APK für den Update-Hinweis (GitHub Actions setzt VERSION_CODE = Laufnummer).
 const code = parseInt(process.env.VERSION_CODE || '', 10);
 if (code > 0) {
@@ -25,4 +29,4 @@ if (code > 0) {
 } else {
   console.log('Keine VERSION_CODE gesetzt: Update-Hinweis in dieser APK aus.');
 }
-console.log('Lern-App nach www/ kopiert: ' + dateien.length + ' Dateien und Icons.');
+console.log('Lern-App nach www/ kopiert: ' + dateien.length + ' Dateien, Icons und Schriften.');

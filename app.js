@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.4.0, 07.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.5.0, 07.11.2026)
  * Liest die veröffentlichte Fragenbank (CSV), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
  * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.4.0';
+  var APP_VERSION = '1.5.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -48,7 +48,7 @@
   var ladeFehler = '';
   var sitzung = { id: null, phase: 'frage', antwort: null, vorher: null, quelle: 'lernen', durch: false };
   var vorrat = { stand: 0, laedt: false, bereit: null, fehler: '', meldung: '' };
-  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {}, uebModus: 'prozesse', evTeil: 'merkhilfe',
+  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {}, setsVon: '#/einstellungen', uebModus: 'prozesse', evTeil: 'merkhilfe',
     rechner: { bac: '10000', plan: '40', fertig: '50', ac: '4000', zeit: '', dauer: '' } };
 
   function ladeZustand() {
@@ -99,6 +99,7 @@
     zahnrad: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
     pfeil: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>',
     links: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
+    rechts: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
     ok: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     x: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>',
     lampe: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none;margin-top:2px;color:var(--accent-text)"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg>',
@@ -441,7 +442,6 @@
     var p = function (k) { return k === aktiv ? ' aria-current="page"' : ''; };
     return '<nav class="nav" aria-label="Hauptnavigation"><div class="nav-innen">' +
       '<a href="#/start"' + p('lernen') + '>' + IKON.lernen + 'Lernen</a>' +
-      '<a href="#/sets"' + p('sets') + '>' + IKON.sets + 'Sets</a>' +
       '<a href="#/statistik"' + p('statistik') + '>' + IKON.statistik + 'Statistik</a>' +
       '<a href="#/uebersicht"' + p('uebersicht') + '>' + IKON.uebersicht + 'Übersicht</a>' +
       '</div></nav>';
@@ -597,7 +597,9 @@
 
   function zeigeSets() {
     var keys = setKeys();
-    var html = '<main class="seite mit-nav">' + kopfMitZahnrad('<h1 class="gross">Fragensets</h1>') + datenHinweis();
+    var vonStart = ui.setsVon === '#/start';
+    var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="' + ui.setsVon + '">' + IKON.links +
+      (vonStart ? 'Lernen' : 'Einstellungen') + '</a></div><h1 class="gross">Fragensets</h1>' + datenHinweis();
     keys.forEach(function (k) {
       var w = setWerte(k), aktiv = S.aktivesSet === k;
       var anteil = w.n ? Math.round((w.beantwortet / w.n) * 100) : 0;
@@ -617,7 +619,7 @@
     html += '<section class="setkarte' + (alleAktiv ? ' aktiv' : '') + '"><button class="setkopf" data-aktivieren="alle" aria-pressed="' + alleAktiv + '">' +
       '<span class="setname">Alle Sets gemischt</span><span class="abzeichen">' + (alleAktiv ? 'Aktiv' : 'Auswählen') + '</span></button>' +
       '<div class="werte"><span><b>' + wa.n + '</b> Fragen aus ' + keys.length + ' Sets</span></div></section>';
-    html += vorratHtml() + '</main>' + nav('sets');
+    html += vorratHtml() + '</main>';
     app.innerHTML = html;
 
     app.querySelectorAll('[data-aktivieren]').forEach(function (el) {
@@ -676,7 +678,12 @@
     vorrat.laedt = true; vorrat.fehler = '';
     api('status').then(function (j) { vorrat.bereit = j.bereit || []; })
       .catch(function (e) { vorrat.fehler = 'Vorrat nicht abrufbar: ' + (e && e.message || e); })
-      .then(function () { vorrat.laedt = false; vorrat.stand = Date.now(); if (aktuelleRoute().name === 'sets') render(); });
+      .then(function () {
+        vorrat.laedt = false; vorrat.stand = Date.now();
+        var rn = aktuelleRoute().name;
+        if (rn === 'sets') render();
+        else if (rn === 'einstellungen') erneuereFbKarte();
+      });
   }
   function uebernehmen() {
     vorrat.laedt = true; vorrat.meldung = ''; render();
@@ -696,7 +703,7 @@
     liste.forEach(function (q) { zahl[status(q)]++; });
     var gefiltert = ui.filter === 'alle' ? liste : liste.filter(function (q) { return status(q) === ui.filter; });
     var namen = { alle: 'Alle', richtig: 'Richtig', falsch: 'Falsch', offen: 'Offen' };
-    var html = '<main class="seite mit-nav"><div class="kopf"><a class="textknopf zurueck" href="#/sets">' + IKON.links + 'Sets</a></div>' +
+    var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/sets">' + IKON.links + 'Fragensets</a></div>' +
       '<h1 class="gross">' + esc(setName(key)) + ' · Fragen</h1>' +
       '<div class="filter" role="group" aria-label="Filter">' + Object.keys(namen).map(function (f) {
         return '<button data-filter="' + f + '" aria-pressed="' + (ui.filter === f) + '">' + namen[f] + ' ' + zahl[f] + '</button>';
@@ -707,7 +714,7 @@
       html += '<a class="eintrag" href="#/f/' + esc(q.id) + '">' + sym + '<span class="mitte"><span>' + esc(q.id) + ' · ' + esc(q.domain) + ' · ' + esc(q.prozess) + '</span><span lang="en">' + esc(q.frage) + '</span></span></a>';
     });
     if (!gefiltert.length) html += '<p class="meldung">Keine Fragen in dieser Auswahl.</p>';
-    app.innerHTML = html + '</div></main>' + nav('sets');
+    app.innerHTML = html + '</div></main>';
     app.querySelectorAll('[data-filter]').forEach(function (el) {
       el.addEventListener('click', function () { ui.filter = el.getAttribute('data-filter'); render(); });
     });
@@ -1142,21 +1149,48 @@
       '</main>' + nav('uebersicht');
   }
 
+  function fragenbankKarte() {
+    var aktiv = S.aktivesSet === 'alle' ? 'Alle Sets gemischt' : setName(S.aktivesSet);
+    var n = vorrat.bereit ? vorrat.bereit.length : 0;
+    return '<section class="karte" data-fb-karte><span class="ueber">Fragenbank und Sets</span>' +
+      '<p>' + fragen.length + ' aktive Fragen in ' + setKeys().length + ' Sets · aktiv: <b>' + esc(aktiv) + '</b></p>' +
+      (n ? '<p class="meldung gut">Neu bereit: ' + n + (n === 1 ? ' Set' : ' Sets') + ' – unter „Fragensets“ übernehmen.</p>' : '') +
+      '<p class="leise">' + (datenStand ? 'Geladen am ' + esc(datumZeit(datenStand)) : 'Noch nicht geladen') + (ladeFehler ? ' · letzter Abruf fehlgeschlagen' : '') + '</p>' +
+      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><a class="knopf klein" href="#/sets">Fragensets</a>' +
+      '<button class="knopf zweit klein" data-neu>Datenquelle neu laden</button></div></section>';
+  }
+  function bindeFb() {
+    var neu = app.querySelector('[data-neu]');
+    if (neu) neu.addEventListener('click', function (e) {
+      e.target.disabled = true; e.target.textContent = 'Lade …';
+      ladeFragenbank().then(function () { zeigeEinstellungen('<p class="meldung gut">Fragenbank neu geladen: ' + fragen.length + ' aktive Fragen.</p>'); },
+        function () { zeigeEinstellungen('<p class="meldung fehler">Laden fehlgeschlagen: ' + esc(ladeFehler) + '</p>'); });
+    });
+  }
+  function erneuereFbKarte() {
+    var k = app.querySelector('[data-fb-karte]');
+    if (k) { k.outerHTML = fragenbankKarte(); bindeFb(); }
+  }
+  function dateiNativ() { return NATIV && PLUG.Datei ? PLUG.Datei : null; }
+
   function zeigeEinstellungen(meldung) {
     var t = S.theme;
+    var importKnopf = dateiNativ()
+      ? '<button class="knopf zweit klein" data-import-nativ>Importieren</button>'
+      : '<label class="knopf zweit klein" style="cursor:pointer">Importieren<input type="file" accept="application/json,.json" class="versteckt" data-import></label>';
     var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/start">' + IKON.links + 'Zurück</a></div>' +
       '<h1 class="gross">Einstellungen</h1>' + (meldung || '') + updateHinweis() +
+      fragenbankKarte() +
+      '<section class="karte"><span class="ueber">Lernstand</span><p class="leise">Der Lernstand liegt nur auf diesem Gerät. Sichere ihn ab und zu als Datei.' +
+      (dateiNativ() ? ' „Exportieren“ öffnet „Speichern unter“ von Android – wähle z. B. den Ordner Downloads.' : '') + '</p>' +
+      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit klein" data-export>Exportieren</button>' + importKnopf + '</div></section>' +
+      erinnerungsKarte() +
       '<section class="karte"><span class="ueber">Darstellung</span><div class="segment" role="group" aria-label="Farbschema">' +
       [['hell', 'Hell'], ['dunkel', 'Dunkel'], ['auto', 'Auto']].map(function (m) {
         return '<button data-theme="' + m[0] + '" aria-pressed="' + (t === m[0]) + '">' + m[1] + '</button>';
       }).join('') + '</div><p class="leise">Auto folgt der Einstellung des Handys.</p></section>' +
-      '<section class="karte"><span class="ueber">Lernstand</span><p class="leise">Der Lernstand liegt nur auf diesem Gerät. Sichere ihn ab und zu als Datei.</p>' +
-      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit klein" data-export>Exportieren</button>' +
-      '<label class="knopf zweit klein" style="cursor:pointer">Importieren<input type="file" accept="application/json,.json" class="versteckt" data-import></label></div></section>' +
-      '<section class="karte"><span class="ueber">Fragenbank</span><p>' + fragen.length + ' aktive Fragen in ' + setKeys().length + ' Sets</p>' +
-      '<p class="leise">' + (datenStand ? 'Geladen am ' + esc(datumZeit(datenStand)) : 'Noch nicht geladen') + (ladeFehler ? ' · letzter Abruf fehlgeschlagen' : '') + '</p>' +
-      '<button class="knopf zweit klein" data-neu>Datenquelle neu laden</button></section>' +
-      erinnerungsKarte() + versionsKarte() +
+      versionsKarte() +
+      '<section class="karte"><span class="ueber">Rechtliches</span><a class="zeilenlink" href="#/datenschutz">Datenschutzerklärung' + IKON.rechts + '</a></section>' +
       '<p class="leise" style="text-align:center">PMP-Lernpartner ' + APP_VERSION + '</p></main>';
     app.innerHTML = html;
     app.querySelectorAll('[data-theme]').forEach(function (el) {
@@ -1165,17 +1199,17 @@
     app.querySelector('[data-export]').addEventListener('click', exportiere);
     bindeErinnerungen();
     bindeUpdate();
+    bindeFb();
     var up = app.querySelector('[data-update-pruefen]');
     if (up) up.addEventListener('click', function () {
       var p = pruefeUpdate(true); zeigeEinstellungen(meldung);
       p.then(function () { if (aktuelleRoute().name === 'einstellungen') zeigeEinstellungen(meldung); });
     });
-    app.querySelector('[data-import]').addEventListener('change', importiere);
-    app.querySelector('[data-neu]').addEventListener('click', function (e) {
-      e.target.disabled = true; e.target.textContent = 'Lade …';
-      ladeFragenbank().then(function () { zeigeEinstellungen('<p class="meldung gut">Fragenbank neu geladen: ' + fragen.length + ' aktive Fragen.</p>'); },
-        function () { zeigeEinstellungen('<p class="meldung fehler">Laden fehlgeschlagen: ' + esc(ladeFehler) + '</p>'); });
-    });
+    var imp = app.querySelector('[data-import]');
+    if (imp) imp.addEventListener('change', importiere);
+    var impN = app.querySelector('[data-import-nativ]');
+    if (impN) impN.addEventListener('click', importiereNativ);
+    pruefeVorrat();
   }
 
   function erinnerungsKarte() {
@@ -1217,14 +1251,38 @@
     });
   }
 
+  function abgebrochen(err) {
+    return !!err && (err.code === 'ABGEBROCHEN' || /abgebrochen|cancel/i.test(String(err.message || err)));
+  }
+  /* Ergebnis melden: in den Einstellungen als Meldung, sonst (z. B. Update-Karte auf Start) als kurzer Hinweis. */
+  function meldeErgebnis(html) {
+    if (aktuelleRoute().name === 'einstellungen') { zeigeEinstellungen(html); return; }
+    var alt = document.querySelector('.toast'); if (alt) alt.remove();
+    var t = document.createElement('div');
+    t.className = 'toast'; t.setAttribute('role', 'status'); t.innerHTML = html;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 5000);
+  }
   function exportiere() {
     var daten = JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
     var d = new Date();
     var name = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
+    var datei = dateiNativ();
+    if (datei) {
+      // Android-App: "Speichern unter" des Systems (DateiPlugin.java)
+      datei.speichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
+        meldeErgebnis('<p class="meldung gut">Lernstand gespeichert: ' + esc((r && r.name) || name) + '</p>');
+      }, function (err) {
+        if (abgebrochen(err)) return;
+        meldeErgebnis('<p class="meldung fehler">Speichern fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+      });
+      return;
+    }
     if (NATIV) {
+      // ältere Android-App ohne DateiPlugin: über "Teilen"
       exportiereNativ(name, daten).catch(function (err) {
-        if (/cancel/i.test(String((err && err.message) || err))) return;
-        zeigeEinstellungen('<p class="meldung fehler">Export fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+        if (abgebrochen(err)) return;
+        meldeErgebnis('<p class="meldung fehler">Export fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
       });
       return;
     }
@@ -1235,24 +1293,68 @@
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
+  function uebernimmLernstand(text) {
+    try {
+      var j = JSON.parse(text);
+      var ls = j.lernstand || j;
+      if (!ls || typeof ls.antworten !== 'object') throw new Error('Keine Lernstand-Datei');
+      if (!window.confirm('Lernstand aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
+      S = normalisiere(ls); speichere(); wendeThemaAn(); planeErinnerungen(false);
+      sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
+      zeigeEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
+    } catch (err) {
+      zeigeEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc(err.message || err) + '</p>');
+    }
+  }
   function importiere(e) {
-    var datei = e.target.files && e.target.files[0];
-    if (!datei) return;
+    var d = e.target.files && e.target.files[0];
+    if (!d) return;
     var r = new FileReader();
-    r.onload = function () {
-      try {
-        var j = JSON.parse(r.result);
-        var ls = j.lernstand || j;
-        if (!ls || typeof ls.antworten !== 'object') throw new Error('Keine Lernstand-Datei');
-        if (!window.confirm('Lernstand aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
-        S = normalisiere(ls); speichere(); wendeThemaAn(); planeErinnerungen(false);
-        sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
-        zeigeEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
-      } catch (err) {
-        zeigeEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc(err.message || err) + '</p>');
-      }
-    };
-    r.readAsText(datei);
+    r.onload = function () { uebernimmLernstand(r.result); };
+    r.readAsText(d);
+  }
+  /* Android-App: "Öffnen" des Systems (DateiPlugin.java) */
+  function importiereNativ() {
+    dateiNativ().oeffnen().then(function (r) { uebernimmLernstand(r && r.inhalt); }, function (err) {
+      if (abgebrochen(err)) return;
+      zeigeEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+    });
+  }
+
+  /* ---------- Datenschutzerklärung (seit Lern-App 1.5.0, nach dem Vorbild von Saschas Homepage) ---------- */
+  function zeigeDatenschutz() {
+    var ext = function (url, text) { return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>'; };
+    app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
+      '<article class="rechtlich">' +
+      '<p class="leise">Diese private, nicht-geschäftliche Lernhilfe verzichtet bewusst auf Cookies, Tracking, Werbung und externe Schriften. Diese Erklärung ist keine Rechtsberatung.</p>' +
+      '<h1 class="gross">Datenschutzerklärung</h1>' +
+      '<h2>1. Verantwortlicher</h2><p>Sascha Martin<br>E-Mail: <a href="mailto:Faceman33@web.de">Faceman33@web.de</a></p>' +
+      '<h2>2. Dein Lernstand bleibt auf deinem Gerät</h2>' +
+      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst; sie liegt dann an dem Ort, den du aussuchst. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
+      '<h2>3. Hosting bei GitHub</h2>' +
+      '<p>Die Lern-App im Browser wird bei ' + ext('https://pages.github.com/', 'GitHub Pages') + ' bereitgestellt, die Android-App wird über GitHub zum Herunterladen angeboten (GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA; im EU-Raum vertreten durch GitHub B.V.). Beim Abruf verarbeitet GitHub technisch notwendige Daten, insbesondere die IP-Adresse, Datum und Uhrzeit, die angeforderte Datei und den verwendeten Browser (Server-Logfiles). Weitere Informationen: ' +
+      ext('https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement', 'Datenschutzerklärung von GitHub') + '.</p>' +
+      '<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einer sicheren und stabilen Bereitstellung). Dabei kann es zu einer Übermittlung in die USA kommen; GitHub ist nach dem EU-US Data Privacy Framework zertifiziert, das ein angemessenes Datenschutzniveau gewährleisten soll.</p>' +
+      '<h2>4. Fragenbank bei Google</h2>' +
+      '<p>Die Fragen liegen in einer veröffentlichten Google-Tabelle. Beim Laden ruft der PMP-Lernpartner sie direkt bei Google ab (Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland; Muttergesellschaft Google LLC, USA). Gleiches gilt, wenn du unter „Fragensets“ nach neuen Sets suchst oder sie übernimmst (Google Apps Script); dabei werden nur die gewünschte Aktion und ein technischer Schlüssel übermittelt. Google erhält dabei technisch notwendige Daten, insbesondere deine IP-Adresse, den Zeitpunkt und Angaben zu Browser bzw. Gerät. Dein Lernstand wird nicht übertragen. Weitere Informationen: ' +
+      ext('https://policies.google.com/privacy', 'Datenschutzerklärung von Google') + '.</p>' +
+      '<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse, die Fragen aktuell und korrigierbar bereitzustellen). Google LLC ist nach dem EU-US Data Privacy Framework zertifiziert.</p>' +
+      '<h2>5. Prüfung auf neue Versionen (nur Android-App)</h2>' +
+      '<p>Die Android-App fragt höchstens alle sechs Stunden und wenn du „Nach Updates suchen“ wählst bei GitHub (api.github.com) die Nummer der neuesten Version ab. Dabei werden keine Daten über dich oder deinen Lernstand gesendet; GitHub erhält wie bei jedem Abruf deine IP-Adresse (siehe Abschnitt 3). Eine neue Version lädst du selbst über den Browser herunter.</p>' +
+      '<h2>6. Erinnerungen und Berechtigungen (nur Android-App)</h2>' +
+      '<p>Die drei täglichen Erinnerungen plant dein Handy selbst als lokale Benachrichtigungen. Es gibt keinen Push-Dienst und keinen Server, der dir Nachrichten schickt.</p>' +
+      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera, Mikrofon oder deinen Speicher greift sie nicht zu; Dateien liest oder schreibt sie nur, wenn du sie in der Dateiauswahl von Android selbst auswählst.</p>' +
+      '<h2>7. Keine Cookies, kein Tracking</h2>' +
+      '<p>Der PMP-Lernpartner setzt keine Cookies und verwendet keine Analyse- oder Werbedienste. Schriften und Programmcode kommen vom eigenen Server bzw. aus der Android-App selbst. Damit die Lern-App im Browser auch offline läuft, legt der Browser ihre Dateien und den zuletzt geladenen Stand der Fragenbank in seinem Speicher auf deinem Gerät ab.</p>' +
+      '<h2>8. Externe Links</h2>' +
+      '<p>Links zu GitHub, Google und anderen Seiten öffnen fremde Angebote. Erst wenn du einen solchen Link antippst, verlässt du den PMP-Lernpartner; ab dann gilt die Datenschutzerklärung des jeweiligen Anbieters.</p>' +
+      '<h2>9. Kontaktaufnahme</h2>' +
+      '<p>Wenn du mir per E-Mail schreibst, verarbeite ich deine Angaben zur Bearbeitung deiner Anfrage (Art. 6 Abs. 1 lit. b oder f DSGVO) und lösche sie, sobald sie nicht mehr erforderlich sind und keine gesetzlichen Aufbewahrungspflichten entgegenstehen.</p>' +
+      '<h2>10. Deine Rechte</h2>' +
+      '<p>Du hast im Rahmen der gesetzlichen Vorgaben das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21). Zudem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren (Art. 77 DSGVO), z. B. bei der für deinen Wohnort oder meinen Sitz zuständigen Landesbehörde.</p>' +
+      '<h2>11. Aktualität</h2>' +
+      '<p>Stand: November 2026 (Lern-App ' + APP_VERSION + '). Ich passe diese Erklärung an, wenn sich der PMP-Lernpartner oder die Rechtslage ändert.</p>' +
+      '</article></main>';
   }
 
   function wendeThemaAn() {
@@ -1298,11 +1400,17 @@
       return zeigeFrage();
     }
     if (r.name === 'einstellungen') return zeigeEinstellungen();
+    if (r.name === 'datenschutz') return zeigeDatenschutz();
     return zeigeStart();
   }
 
+  var letzteRoute = aktuelleRoute().name;
   window.addEventListener('hashchange', function () {
     var r = aktuelleRoute();
+    // Fragensets: "Zurück" führt dorthin, woher man kam (Start oder Einstellungen)
+    if (r.name === 'sets' && letzteRoute !== 'set' && letzteRoute !== 'f') ui.setsVon = letzteRoute === 'start' ? '#/start' : '#/einstellungen';
+    letzteRoute = r.name;
+    var toast = document.querySelector('.toast'); if (toast) toast.remove();
     if (r.name === 'frage' && sitzung.quelle === 'lernen' && sitzung.phase === 'feedback') naechste();
     render();
     window.scrollTo(0, 0);

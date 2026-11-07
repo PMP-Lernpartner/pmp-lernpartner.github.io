@@ -15,6 +15,7 @@ on:
       - 'config.js'
       - 'manifest.webmanifest'
       - 'icons/**'
+      - 'fonts/**'
       - 'android-app/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
