@@ -110,6 +110,7 @@
     rechts: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
     ok: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     x: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>',
+    hilfe: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
     lampe: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none;margin-top:2px;color:var(--accent-text)"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9V16h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></svg>',
     wieder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
     lernen: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>',
@@ -589,8 +590,9 @@
       '</div></nav>';
   }
   function kopfMitZahnrad(titelHtml) {
-    return '<div class="kopf">' + titelHtml +
-      '<a class="symbolknopf" href="#/einstellungen" aria-label="Einstellungen">' + IKON.zahnrad + '</a></div>';
+    return '<div class="kopf">' + titelHtml + '<div class="kopf-symbole">' +
+      '<a class="symbolknopf" href="#/hilfe" aria-label="Hilfe: neuen Fragenkatalog einrichten">' + IKON.hilfe + '</a>' +
+      '<a class="symbolknopf" href="#/einstellungen" aria-label="Einstellungen">' + IKON.zahnrad + '</a></div></div>';
   }
   function marke() { return '<div class="marke"><div class="logo">' + IKON.haken + '</div>PMP-Lernpartner</div>'; }
   function balken(p, schwach) {
@@ -1681,6 +1683,81 @@
       '</article></main>';
   }
 
+  /* ---------- Hilfe: neuen Fragenkatalog einrichten (seit 1.8.0) ---------- */
+
+  function zeigeHilfe() {
+    var tab = ui.hilfeTab === 'datei' ? 'datei' : 'sheet';
+    var zurueck = ui.hilfeVon || '#/start';
+    var spalten = '<section class="karte"><span class="ueber">Spalten der Fragenbank</span>' +
+      '<p class="leise">Die erste Zeile enthält die Spaltenköpfe (klein geschrieben). Die Reihenfolge ist egal.</p>' +
+      '<table class="hilfe-tabelle"><thead><tr><th>Spalte</th><th>Inhalt</th></tr></thead><tbody>' +
+      [['id', 'Pflicht. Eindeutig und dauerhaft, z. B. P01-001. Nie ändern – der Lernstand hängt daran.'],
+       ['frage', 'Pflicht. Fragetext.'],
+       ['a, b, c, d', 'Pflicht. Die vier Antworten.'],
+       ['loesung', 'Pflicht. Buchstabe der richtigen Antwort: A, B, C oder D.'],
+       ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
+       ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
+       ['domain, focus_area, prozess', 'Wahlweise. Einordnung über der Frage und Grundlage der Statistik.'],
+       ['warum, warum_nicht', 'Wahlweise. Erklärung der richtigen bzw. der falschen Antworten.'],
+       ['referenz, merksatz', 'Wahlweise. Erscheinen bei falscher Antwort.']
+      ].map(function (z) { return '<tr><td>' + z[0].split(', ').map(function (n) { return '<code>' + esc(n) + '</code>'; }).join('<br>') + '</td><td>' + esc(z[1]) + '</td></tr>'; }).join('') +
+      '</tbody></table></section>';
+    var sheet =
+      '<section class="karte"><span class="ueber">Was du brauchst</span>' +
+      '<p>Ein Google-Konto, einmal einen PC (oder Chrome am Handy mit „Desktopversion“) und den <b>Kopier-Link der Vorlage</b> von der Person, die dir den PMP-Lernpartner gegeben hat.</p>' +
+      '<p class="leise">Vorteil: Du pflegst die Fragen bequem im Google Sheet, Korrekturen sind sofort in der App. Nur du kommst mit deinem persönlichen Schlüssel an die Fragen.</p></section>' +
+      '<section class="karte"><span class="ueber">1 · Vorlage kopieren</span><ol class="schritte">' +
+      '<li>Kopier-Link öffnen und „Kopie erstellen“ tippen. Die Fragenbank liegt dann in deinem Google Drive, das Skript ist mitkopiert.</li>' +
+      '<li>Optional umbenennen, z. B. „Meine Fragenbank“.</li></ol></section>' +
+      '<section class="karte"><span class="ueber">2 · Skript einrichten (einmal, am PC)</span><ol class="schritte">' +
+      '<li>In deiner Kopie: <b>Erweiterungen → Apps Script</b>.</li>' +
+      '<li>Oben die Funktion <b>einrichten</b> wählen und <b>Ausführen</b> tippen.</li>' +
+      '<li>Zugriff erlauben. Erscheint „Google hat diese App nicht überprüft“: <b>Erweitert</b> → <b>Weiter zu …</b> → <b>Zulassen</b>. Das Skript läuft nur in deinem Konto.</li>' +
+      '<li><b>Bereitstellen → Neue Bereitstellung</b>, Typ <b>Web-App</b>. Ausführen als: <b>Ich</b>. Zugriff: <b>Jeder</b>. → Bereitstellen.</li>' +
+      '<li>Die angezeigte <b>Web-App-URL</b> (endet auf /exec) kopieren und im Sheet im Tab <b>„Verbindung“</b> in Zelle <b>B9</b> einfügen. In B7 erscheint dann dein Verbindungscode.</li></ol>' +
+      '<p class="leise">„Zugriff: Jeder“ ist nötig, damit die App das Skript erreicht. Ohne deinen Schlüssel liefert es nichts.</p></section>' +
+      '<section class="karte"><span class="ueber">3 · Fragen eintragen</span>' +
+      '<p>Im Tab <b>„Fragen“</b> eine Frage pro Zeile, Spalten siehe unten. Korrigieren kannst du jederzeit, auch in der Sheets-App am Handy.</p></section>' +
+      '<section class="karte"><span class="ueber">4 · App verbinden (am Handy)</span><ol class="schritte">' +
+      '<li>In der Sheets-App deine Fragenbank öffnen, unten zum Tab <b>„Verbindung“</b>.</li>' +
+      '<li>Kästchen <b>„Verbindungs-Mail senden“</b> anhaken. Du bekommst eine Mail an dein Google-Konto.</li>' +
+      '<li>In der Mail auf <b>„PMP-Lernpartner verbinden“</b> tippen – fertig. Öffnet sich der Browser: dort „In der Android-App verbinden“ tippen.</li></ol>' +
+      '<p class="leise">Ohne Mail: Code aus B7 kopieren → hier Einstellungen → Datenquelle → einfügen → „Verbinden“.</p>' +
+      '<a class="knopf klein" href="#/datenquelle">Zur Datenquelle</a></section>' +
+      '<section class="karte"><span class="ueber">Gut zu wissen</span><ul class="schritte">' +
+      '<li><b>Neuer Schlüssel:</b> Kästchen „Neuen Schlüssel erzeugen“ anhaken. Der alte gilt sofort nicht mehr; danach die App neu verbinden.</li>' +
+      '<li><b>Neue Fragensets:</b> CSV-Dateien mit denselben Spalten in den Ordner <b>pakete/neu</b> neben deiner Fragenbank legen, dann in der App Einstellungen → Fragensets → „Übernehmen“.</li>' +
+      '<li><b>Neues Handy:</b> Die Lernstand-Sicherung enthält die Verbindung. Importieren genügt. Gib die Sicherung deshalb nicht weiter.</li></ul></section>';
+    var datei =
+      '<section class="karte"><span class="ueber">Was du brauchst</span>' +
+      '<p>Eine CSV-Datei mit deinen Fragen auf dem Handy. Kein Google-Konto, kein Skript.</p>' +
+      '<p class="leise">Die Fragen bleiben nur auf diesem Gerät. Für neue oder korrigierte Fragen liest du die Datei neu ein. „Neue Sets übernehmen“ gibt es hier nicht.</p></section>' +
+      '<section class="karte"><span class="ueber">1 · Datei erstellen</span><ol class="schritte">' +
+      '<li>Tabelle in Excel, Google Sheets oder LibreOffice anlegen: erste Zeile die Spaltenköpfe, darunter eine Frage pro Zeile (Spalten siehe unten).</li>' +
+      '<li>Als <b>CSV (UTF-8, durch Komma getrennt)</b> speichern. In Google Sheets: Datei → Herunterladen → CSV. In Excel: „CSV UTF-8 (durch Trennzeichen getrennt)“.</li></ol>' +
+      '<p class="leise">Kleinstes Beispiel:</p>' +
+      '<pre class="code-beispiel">id,frage,a,b,c,d,loesung\nP01-001,What should the PM do first?,Escalate,Analyze the impact,Ignore it,Close the project,B</pre></section>' +
+      '<section class="karte"><span class="ueber">2 · Aufs Handy bringen</span>' +
+      '<p>Die Datei z. B. per Mail, Google Drive oder USB in den Download-Ordner des Handys legen.</p></section>' +
+      '<section class="karte"><span class="ueber">3 · In der App einlesen</span><ol class="schritte">' +
+      '<li>Einstellungen → <b>Datenquelle</b> → <b>„CSV-Datei wählen“</b>.</li>' +
+      '<li>Datei auswählen. Die App prüft sie und meldet „… aktive Fragen“ oder, was fehlt.</li></ol>' +
+      '<a class="knopf klein" href="#/datenquelle">Zur Datenquelle</a></section>' +
+      '<section class="karte"><span class="ueber">Gut zu wissen</span><ul class="schritte">' +
+      '<li><b>Fragen ändern:</b> Datei bearbeiten und erneut einlesen. Behalte die IDs bei, dann bleibt dein Lernstand erhalten.</li>' +
+      '<li><b>Sets:</b> Mit der Spalte <code>paket</code> (P01, P02 …) teilst du die Fragen in Fragensets auf.</li>' +
+      '<li><b>Neues Handy:</b> Die Lernstand-Sicherung enthält auch die Fragen aus der Datei.</li></ul></section>';
+    app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="' + esc(zurueck) + '">' + IKON.links + 'Zurück</a></div>' +
+      '<h1 class="gross">Neuen Fragenkatalog einrichten</h1>' +
+      '<p class="unter">Der PMP-Lernpartner lernt mit deiner eigenen Fragenbank. Wähle, wo sie liegen soll.</p>' +
+      '<div class="segment" role="group" aria-label="Art der Fragenbank"><button data-hilfe-tab="sheet" aria-pressed="' + (tab === 'sheet') + '">Google Sheet</button>' +
+      '<button data-hilfe-tab="datei" aria-pressed="' + (tab === 'datei') + '">Lokale Datei</button></div>' +
+      (tab === 'sheet' ? sheet : datei) + spalten + '</main>';
+    app.querySelectorAll('[data-hilfe-tab]').forEach(function (el) {
+      el.addEventListener('click', function () { ui.hilfeTab = el.getAttribute('data-hilfe-tab'); zeigeHilfe(); window.scrollTo(0, 0); });
+    });
+  }
+
   /* ---------- Datenquelle (seit 1.8.0) ---------- */
 
   function zeigeDatenquelle(meldung) {
@@ -1691,7 +1768,7 @@
       (datenStand ? ' · geladen am ' + esc(datumZeit(datenStand)) : '') + '</p>' +
       (ladeFehler ? '<p class="meldung fehler">' + esc(ladeFehler) + '</p>' : '');
     app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
-      '<h1 class="gross">Datenquelle</h1>' + (meldung || '') +
+      '<div class="zeile" style="align-items:center"><h1 class="gross">Datenquelle</h1><a class="symbolknopf" href="#/hilfe" aria-label="Anleitung: Fragenkatalog einrichten">' + IKON.hilfe + '</a></div>' + (meldung || '') +
       '<section class="karte"><span class="ueber">Status</span>' + status + '</section>' +
       '<section class="karte"><span class="ueber">Google Sheet verbinden</span>' +
       '<ol class="schritte">' +
@@ -1767,7 +1844,8 @@
     app.innerHTML = '<main class="seite">' + marke() +
       '<div><h1 class="gross">Willkommen</h1><p class="unter">Der PMP-Lernpartner lernt mit deinen eigenen Fragen.</p></div>' +
       '<section class="karte"><p>Verbinde zuerst deine Datenquelle: dein Google Sheet mit dem PMP-Lernpartner-Skript oder eine CSV-Datei mit Fragen.</p>' +
-      '<a class="knopf" href="#/datenquelle">Datenquelle verbinden</a></section>' +
+      '<a class="knopf" href="#/datenquelle">Datenquelle verbinden</a>' +
+      '<a class="knopf zweit" href="#/hilfe">' + IKON.hilfe + ' Anleitung: Fragenkatalog einrichten</a></section>' +
       '<p class="leise" style="text-align:center"><a href="#/datenschutz">Datenschutzerklärung</a></p></main>';
   }
 
@@ -1793,6 +1871,7 @@
     if (r0.name === 'datenquelle') { var m0 = ui.meldung; ui.meldung = null; return zeigeDatenquelle(m0); }
     if (r0.name === 'verbinden') return zeigeVerbinden(r0.arg);
     if (r0.name === 'datenschutz') return zeigeDatenschutz();
+    if (r0.name === 'hilfe') return zeigeHilfe();
     if (!fragen.length && !Q) {
       if (r0.name === 'einstellungen') { var m1 = ui.meldung; ui.meldung = null; return zeigeEinstellungen(m1); }
       return zeigeWillkommen();
@@ -1834,6 +1913,7 @@
     var r = aktuelleRoute();
     // Fragensets: "Zurück" führt dorthin, woher man kam (Start oder Einstellungen)
     if (r.name === 'sets' && letzteRoute !== 'set' && letzteRoute !== 'f') ui.setsVon = letzteRoute === 'start' ? '#/start' : '#/einstellungen';
+    if (r.name === 'hilfe' && letzteRoute !== 'hilfe') ui.hilfeVon = ['statistik', 'uebersicht', 'einstellungen', 'datenquelle'].indexOf(letzteRoute) >= 0 ? '#/' + letzteRoute : '#/start';
     letzteRoute = r.name;
     var toast = document.querySelector('.toast'); if (toast) toast.remove();
     if (r.name === 'frage' && sitzung.quelle === 'lernen' && sitzung.phase === 'feedback') naechste();
