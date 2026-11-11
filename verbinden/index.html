@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>PMP-Lernpartner verbinden</title>
+<link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+<style>
+  :root { color-scheme: light dark; --akzent: #2747C9; --ink: #14171F; --muted: #5B6271; --surface: #fff; --bg: #F4F5F7; --border: #E3E6EC; }
+  @media (prefers-color-scheme: dark) { :root { --akzent: #8FA5FF; --ink: #ECEEF3; --muted: #A2A8B6; --surface: #181C24; --bg: #0F1217; --border: #2A2F3A; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 32px 20px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 24px; margin: 0; }
+  .karte { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  a.knopf, button { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 14px; border: 0;
+    background: var(--akzent); color: #fff; font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+  .zweit { background: transparent !important; color: var(--akzent) !important; border: 1.5px solid var(--akzent) !important; }
+  p { margin: 0; } .leise { color: var(--muted); font-size: 14px; }
+  .fehler { color: #B4441B; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PMP-Lernpartner verbinden</h1>
+  <div id="inhalt" class="karte"><p>Einen Moment …</p></div>
+  <p class="leise">Der Link enthält deinen persönlichen Schlüssel. Er steht hinter dem „#“ und wird deshalb nicht an den Server geschickt. Leite die Mail nicht weiter.</p>
+</main>
+<script>
+  (function () {
+    var m = /c=(PMPLP1\.[A-Za-z0-9_-]+)/.exec(location.hash || '');
+    var el = document.getElementById('inhalt');
+    if (!m) {
+      el.innerHTML = '<p class="fehler">Dieser Link enthält keinen Verbindungscode.</p><p class="leise">Schicke dir die Verbindungs-Mail im Tab „Verbindung“ deiner Fragenbank erneut.</p>';
+      return;
+    }
+    var code = m[1];
+    var android = /Android/i.test(navigator.userAgent);
+    var intent = 'intent://pmp-lernpartner.github.io/verbinden/' + code + '#Intent;scheme=https;package=io.github.pmplernpartner;end';
+    el.innerHTML =
+      (android ? '<a class="knopf" href="' + intent + '">In der Android-App verbinden</a>' +
+        '<p class="leise">Öffnet den PMP-Lernpartner auf diesem Handy und verbindet ihn mit deiner Fragenbank.</p>' : '') +
+      '<a class="knopf' + (android ? ' zweit' : '') + '" href="../#/verbinden/' + code + '">Hier im Browser verbinden</a>' +
+      '<button class="zweit" id="kopieren">Code kopieren</button>' +
+      '<p class="leise" id="hinweis">Zum Einfügen in der App: Einstellungen → Datenquelle → Code einfügen.</p>';
+    document.getElementById('kopieren').addEventListener('click', function () {
+      var h = document.getElementById('hinweis');
+      var fertig = function () { h.textContent = 'Kopiert. In der App: Einstellungen → Datenquelle → Code einfügen → Verbinden.'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(fertig, function () { h.textContent = code; });
+      else h.textContent = code;
+    });
+  })();
+</script>
+</body>
+</html>

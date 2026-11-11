@@ -1,5 +1,6 @@
-/* PMP-Lernpartner – Lern-App (Version 1.5.0, 07.11.2026)
- * Liest die veröffentlichte Fragenbank (CSV), zeigt Fragensets, Fragen und Feedback
+/* PMP-Lernpartner – Lern-App (Version 1.8.0, 11.11.2026)
+ * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
+ * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
  * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
  * plant das Handy die täglichen Erinnerungen selbst.
@@ -8,9 +9,15 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.7.0';
+  var APP_VERSION = '1.8.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
+  /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
+   * { art: 'sheet', url: '…/exec', schluessel: '…', name: '…' } oder { art: 'datei', name: '…' } */
+  var QUELLE_SPEICHER = 'pmplp.quelle';
+  var PFLICHT = ['id', 'frage', 'a', 'b', 'c', 'd', 'loesung'];
+  var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd',
+    'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz'];
   var TAG_MS = 86400000;
   var ECO_ZIEL = { I: 0.33, II: 0.41, III: 0.26 };
   var ECO_NAME = { I: 'People', II: 'Process', III: 'Business Environment' };
@@ -66,6 +73,7 @@
       reset: s.reset || {},
       zaehler: s.zaehler || 0,
       offen: s.offen || null,
+      name: typeof s.name === 'string' ? s.name.slice(0, 40) : '',
       erinnerung: normErinnerung(s.erinnerung),
     };
   }
@@ -282,52 +290,164 @@
     return zeilen;
   }
 
-  function uebernehmeCsv(text, stand) {
-    var z = parseCsv(text);
+  /* Prüft und übernimmt eine Fragenbank als CSV-Text. Pflichtspalten: id, frage, a–d, loesung.
+   * Alle übrigen Spalten sind wahlweise; fehlt "aktiv", gelten alle Fragen als aktiv.
+   * Wirft einen Fehler, ohne die bisher geladenen Fragen anzutasten. */
+  function pruefeCsv(text) {
+    var z = parseCsv(String(text || '').replace(/^﻿/, ''));
     if (!z.length) throw new Error('Leere Fragenbank');
-    var kopf = z[0].map(function (h) { return String(h).trim(); });
-    if (kopf.indexOf('id') < 0 || kopf.indexOf('frage') < 0) throw new Error('Unerwartetes Format der Fragenbank');
-    var liste = [];
-    alleZeilen = 0;
+    var kopf = z[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var fehlt = PFLICHT.filter(function (h) { return kopf.indexOf(h) < 0; });
+    if (fehlt.length) throw new Error('Spalten fehlen: ' + fehlt.join(', ') + ' (erste Zeile muss die Spaltenköpfe enthalten)');
+    var mitAktiv = kopf.indexOf('aktiv') >= 0;
+    var liste = [], zeilen = 0;
     for (var r = 1; r < z.length; r++) {
       if (z[r].join('').trim() === '') continue;
-      alleZeilen++;
+      zeilen++;
       var q = {};
+      SPALTEN.forEach(function (h) { q[h] = ''; });
       kopf.forEach(function (h, i) { q[h] = String(z[r][i] == null ? '' : z[r][i]).trim(); });
-      if (!q.id || q.aktiv.toLowerCase() !== 'ja') continue;
-      if (!q.paket) q.paket = q.id.split('-')[0];
+      if (!q.id || !q.frage) continue;
+      if (mitAktiv && q.aktiv.toLowerCase() !== 'ja') continue;
+      if (!q.paket) q.paket = q.id.indexOf('-') > 0 ? q.id.split('-')[0] : 'P01';
       q.loesung = q.loesung.toUpperCase();
+      if (!/^[ABCD]$/.test(q.loesung)) continue;
       liste.push(q);
     }
-    fragen = liste;
+    if (!liste.length) throw new Error('Keine aktiven Fragen gefunden');
+    return { liste: liste, zeilen: zeilen };
+  }
+  function uebernehmeCsv(text, stand) {
+    var e = pruefeCsv(text);
+    fragen = e.liste;
+    alleZeilen = e.zeilen;
     nachId = {};
-    liste.forEach(function (q) { nachId[q.id] = q; });
+    fragen.forEach(function (q) { nachId[q.id] = q; });
     datenStand = stand;
     if (S.aktivesSet !== 'alle' && !setKeys().some(function (k) { return k === S.aktivesSet; })) S.aktivesSet = 'alle';
   }
+  function merkeCsv(text, stand) {
+    try { localStorage.setItem(CSV_SPEICHER, JSON.stringify({ text: text, stand: stand })); } catch (e) {}
+  }
+  function gemerkteCsv() {
+    try { var c = JSON.parse(localStorage.getItem(CSV_SPEICHER) || 'null'); return c && c.text ? c : null; } catch (e) { return null; }
+  }
 
   function ladeAusSpeicher() {
+    var c = gemerkteCsv();
+    if (!c) return false;
+    try { uebernehmeCsv(c.text, c.stand); return true; } catch (e) { return false; }
+  }
+
+  /* ---------- Datenquelle (seit 1.8.0) ---------- */
+
+  var Q = ladeQuelle();
+  function ladeQuelle() {
     try {
-      var c = JSON.parse(localStorage.getItem(CSV_SPEICHER) || 'null');
-      if (c && c.text) { uebernehmeCsv(c.text, c.stand); return true; }
+      var q = JSON.parse(localStorage.getItem(QUELLE_SPEICHER) || 'null');
+      if (q && q.art === 'sheet' && q.url && q.schluessel) return q;
+      if (q && q.art === 'datei') return q;
     } catch (e) {}
-    return false;
+    return null;
+  }
+  function speichereQuelle(q) {
+    Q = q;
+    try { if (q) localStorage.setItem(QUELLE_SPEICHER, JSON.stringify(q)); else localStorage.removeItem(QUELLE_SPEICHER); } catch (e) {}
+  }
+  function istSheet() { return !!(Q && Q.art === 'sheet'); }
+  function quelleText() {
+    if (!Q) return 'Keine Datenquelle verbunden';
+    return Q.art === 'sheet' ? 'Google Sheet „' + (Q.name || 'Fragenbank') + '“' : 'Lokale Datei „' + (Q.name || 'Fragen.csv') + '“';
+  }
+
+  /* Verbindungscode aus Skript 3.0: "PMPLP1." + Base64url von {u: Adresse der Skript-Schnittstelle, k: Schlüssel}.
+   * Angenommen wird auch ein ganzer Text, in dem der Code steckt (z. B. der Link aus der Mail). */
+  function leseCode(text) {
+    var m = /PMPLP1\.([A-Za-z0-9_-]+)/.exec(String(text || ''));
+    if (!m) throw new Error('Das ist kein Verbindungscode. Er beginnt mit „PMPLP1.“ und steht im Tab „Verbindung“ deiner Fragenbank.');
+    var b = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    var j = null;
+    try { j = JSON.parse(decodeURIComponent(escape(atob(b)))); } catch (e) { j = null; }
+    if (!j || typeof j.u !== 'string' || !/^https:\/\/script\.google\.com\/.+\/exec$/.test(j.u) || typeof j.k !== 'string' || j.k.length < 16) {
+      throw new Error('Der Verbindungscode ist unvollständig. Bitte den ganzen Code kopieren.');
+    }
+    return { art: 'sheet', url: j.u, schluessel: j.k };
+  }
+  function codeAusUrl(url) {
+    var m = /\/verbinden\/(?:#c=)?(PMPLP1\.[A-Za-z0-9_-]+)/.exec(String(url || ''));
+    return m ? m[1] : null;
+  }
+
+  /* Aufruf der Skript-Schnittstelle. In der Android-App läuft fetch über CapacitorHttp (keine CORS-Sperre). */
+  function api(aktion, q) {
+    q = q || Q;
+    if (!q || q.art !== 'sheet') return Promise.reject(new Error('Kein Google Sheet verbunden'));
+    var url = q.url + '?schluessel=' + encodeURIComponent(q.schluessel) + '&aktion=' + aktion + '&_=' + Date.now();
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('Skript antwortet mit ' + r.status);
+      return r.text();
+    }, function () { throw new Error('Skript nicht erreichbar (offline?)'); }).then(function (t) {
+      var j;
+      try { j = JSON.parse(t); } catch (e) { throw new Error('Unerwartete Antwort des Skripts – ist es als Web-App mit Zugriff „Jeder“ bereitgestellt?'); }
+      if (!j.ok) {
+        if (j.fehler === 'Schlüssel ungültig') throw new Error('Schlüssel ungültig – bitte unter Einstellungen → Datenquelle neu verbinden.');
+        throw new Error(j.fehler || 'Unbekannter Fehler');
+      }
+      return j;
+    });
   }
 
   function ladeFragenbank() {
-    var url = CFG.CSV_URL + (CFG.CSV_URL.indexOf('?') < 0 ? '?' : '&') + '_=' + Date.now();
-    return fetch(url, { cache: 'no-store' }).then(function (r) {
-      if (!r.ok) throw new Error('Fragenbank antwortet mit ' + r.status);
-      return r.text();
-    }).then(function (text) {
-      var stand = Date.now();
-      uebernehmeCsv(text, stand);
-      ladeFehler = '';
-      try { localStorage.setItem(CSV_SPEICHER, JSON.stringify({ text: text, stand: stand })); } catch (e) {}
-    }).catch(function (err) {
+    var p;
+    if (istSheet()) {
+      p = api('fragen').then(function (j) {
+        if (typeof j.csv !== 'string') throw new Error('Das Skript liefert keine Fragen – ist Skript 3.0 eingefügt und neu bereitgestellt?');
+        if (j.name && j.name !== Q.name) { Q.name = j.name; speichereQuelle(Q); }
+        var stand = Date.now();
+        uebernehmeCsv(j.csv, stand);
+        merkeCsv(j.csv, stand);
+      });
+    } else if (Q && Q.art === 'datei') {
+      p = new Promise(function (ok) {
+        if (!ladeAusSpeicher()) throw new Error('Die Datei ist nicht mehr gespeichert – bitte unter Einstellungen → Datenquelle neu einlesen.');
+        ok();
+      });
+    } else {
+      p = Promise.reject(new Error('Keine Datenquelle verbunden'));
+    }
+    return p.then(function () { ladeFehler = ''; }, function (err) {
       ladeFehler = String(err && err.message || err);
       throw err;
     });
+  }
+
+  /* Mit einem Google Sheet verbinden: Code lesen, Schlüssel prüfen, speichern, Fragen laden. */
+  function verbinde(text) {
+    var q;
+    try { q = leseCode(text); } catch (e) { return Promise.reject(e); }
+    return api('pruefen', q).then(function (j) {
+      q.name = j.name || 'Fragenbank';
+      speichereQuelle(q);
+      vorrat.stand = 0; vorrat.bereit = null; vorrat.fehler = '';
+      return ladeFragenbank();
+    }).then(function () { planeErinnerungen(false); return q; });
+  }
+  /* Lokale CSV-Datei einlesen: erst prüfen, dann übernehmen. */
+  function leseDatei(name, text) {
+    var stand = Date.now();
+    uebernehmeCsv(text, stand);
+    merkeCsv(text, stand);
+    speichereQuelle({ art: 'datei', name: name || 'Fragen.csv' });
+    ladeFehler = '';
+    vorrat.bereit = null; vorrat.fehler = '';
+    planeErinnerungen(false);
+  }
+  function trenne() {
+    speichereQuelle(null);
+    try { localStorage.removeItem(CSV_SPEICHER); } catch (e) {}
+    fragen = []; nachId = {}; alleZeilen = 0; datenStand = null; ladeFehler = '';
+    vorrat.bereit = null; vorrat.fehler = ''; vorrat.meldung = '';
   }
 
   /* ---------- Sets und Lernstand ---------- */
@@ -477,6 +597,8 @@
     return '<div class="balken' + (schwach ? ' schwach' : '') + '" role="img" aria-label="' + (p == null ? 'keine Daten' : p + ' Prozent') + '"><div style="width:' + (p || 0) + '%"></div></div>';
   }
   function datenHinweis() {
+    if (!Q && fragen.length) return '<a class="meldung fehler" href="#/datenquelle" style="display:block;text-decoration:none">Bitte verbinde deine Datenquelle (Einstellungen → Datenquelle). Bis dahin lernst du mit dem zuletzt geladenen Stand. ›</a>';
+    if (ladeFehler && fragen.length && /Schlüssel|Datei ist nicht/.test(ladeFehler)) return '<a class="meldung fehler" href="#/datenquelle" style="display:block;text-decoration:none">' + esc(ladeFehler) + ' ›</a>';
     if (ladeFehler && fragen.length) return '<p class="meldung">Offline oder Fragenbank nicht erreichbar – du lernst mit dem Stand vom ' + esc(datumZeit(datenStand)) + '.</p>';
     return '';
   }
@@ -486,7 +608,7 @@
     var h = new Date().getHours();
     var gruss = h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
     app.innerHTML = '<main class="seite mit-nav">' + kopfMitZahnrad(marke()) +
-      '<div><h1 class="gross">' + gruss + (CFG.NAME ? ', ' + esc(CFG.NAME) : '') + '</h1>' +
+      '<div><h1 class="gross">' + gruss + (S.name ? ', ' + esc(S.name) : '') + '</h1>' +
       '<p class="unter">Eine Frage – oder ein paar mehr?</p></div>' + datenHinweis() + updateHinweis() +
       '<section class="karte"><div class="zeile"><span class="ueber">' + esc(setName(key)) + ' · Quote</span>' +
       '<a class="textknopf" href="#/sets" style="padding:0;min-height:0">Set wechseln</a></div>' +
@@ -504,7 +626,8 @@
 
   function einordnung(q) {
     var chip = function (t, v) { return '<div class="chip"><span>' + t + '</span><span>' + esc(v) + '</span></div>'; };
-    return '<div class="einordnung" aria-label="Einordnung">' + chip('Domain', q.domain) + chip('Focus Area', q.focus_area) + chip('Prozess', q.prozess) + '</div>';
+    var html = (q.domain ? chip('Domain', q.domain) : '') + (q.focus_area ? chip('Focus Area', q.focus_area) : '') + (q.prozess ? chip('Prozess', q.prozess) : '');
+    return html ? '<div class="einordnung" aria-label="Einordnung">' + html + '</div>' : '';
   }
 
   function zeigeFrage() {
@@ -676,8 +799,9 @@
 
   function vorratHtml() {
     var html = '<section class="vorrat"><span class="ueber">Neue Sets</span>';
-    if (!CFG.API_URL) {
-      html += '<p class="leise">Der Knopf „Übernehmen“ wird freigeschaltet, sobald das Skript als Web-App bereitsteht. Neue Sets bekommst du im Projekt-Chat mit „Neues Fragenpaket“.</p>';
+    if (!istSheet()) {
+      html += '<p class="leise">' + (Q ? 'Neue Sets aus dem Ordner „pakete/neu“ gibt es nur mit einem verbundenen Google Sheet. Mit einer lokalen Datei liest du stattdessen eine neue Datei ein (Einstellungen → Datenquelle).'
+        : 'Verbinde zuerst eine Datenquelle (Einstellungen → Datenquelle).') + '</p>';
     } else if (vorrat.laedt && vorrat.bereit == null) {
       html += '<p class="leise">Prüfe den Vorrat …</p>';
     } else if (vorrat.fehler) {
@@ -687,21 +811,14 @@
       html += '<p><b>Neu bereit: ' + n + (n === 1 ? ' Set' : ' Sets') + '</b></p><p class="leise">' + vorrat.bereit.map(esc).join('<br>') + '</p>' +
         '<button class="knopf klein" data-uebernehmen' + (vorrat.laedt ? ' disabled' : '') + '>' + (vorrat.laedt ? 'Übernehme …' : 'Übernehmen') + '</button>';
     } else {
-      html += '<p class="leise">Kein Vorrat. Neue Sets bekommst du im Projekt-Chat mit „Neues Fragenpaket“.</p>';
+      html += '<p class="leise">Kein Vorrat in „pakete/neu“. Neue Sets landen dort als CSV-Datei, z. B. aus dem Projekt-Chat mit „Neues Fragenpaket“.</p>';
     }
     if (vorrat.meldung) html += '<p class="meldung gut">' + vorrat.meldung + '</p>';
     return html + '</section>';
   }
 
-  function api(aktion) {
-    var url = CFG.API_URL + '?schluessel=' + encodeURIComponent(CFG.API_KEY) + '&aktion=' + aktion + '&_=' + Date.now();
-    return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
-      if (!j.ok) throw new Error(j.fehler || 'Unbekannter Fehler');
-      return j;
-    });
-  }
   function pruefeVorrat() {
-    if (!CFG.API_URL || vorrat.laedt || Date.now() - vorrat.stand < 60000) return;
+    if (!istSheet() || vorrat.laedt || Date.now() - vorrat.stand < 60000) return;
     vorrat.laedt = true; vorrat.fehler = '';
     api('status').then(function (j) { vorrat.bereit = j.bereit || []; })
       .catch(function (e) { vorrat.fehler = 'Vorrat nicht abrufbar: ' + (e && e.message || e); })
@@ -716,8 +833,8 @@
     vorrat.laedt = true; vorrat.meldung = ''; render();
     api('uebernehmen').then(function (j) {
       vorrat.bereit = [];
-      vorrat.meldung = esc((j.berichte || []).join(' ')) + '<br>Die neuen Fragen erscheinen nach ein paar Minuten (Google aktualisiert die veröffentlichte Fragenbank verzögert). Unter Einstellungen → „Datenquelle neu laden“ kannst du nachhelfen.';
-      setTimeout(function () { ladeFragenbank().then(render, function () {}); }, 60000);
+      vorrat.meldung = esc((j.berichte || []).join(' '));
+      return ladeFragenbank().catch(function () {});
     }).catch(function (e) {
       vorrat.fehler = 'Übernehmen fehlgeschlagen: ' + (e && e.message || e);
     }).then(function () { vorrat.laedt = false; vorrat.stand = Date.now(); render(); });
@@ -1180,17 +1297,18 @@
     var aktiv = S.aktivesSet === 'alle' ? 'Alle Sets gemischt' : setName(S.aktivesSet);
     var n = vorrat.bereit ? vorrat.bereit.length : 0;
     return '<section class="karte" data-fb-karte><span class="ueber">Fragenbank und Sets</span>' +
+      '<a class="zeilenlink" href="#/datenquelle"><span>Datenquelle: ' + esc(quelleText()) + '</span>' + IKON.rechts + '</a>' +
       '<p>' + fragen.length + ' aktive Fragen in ' + setKeys().length + ' Sets · aktiv: <b>' + esc(aktiv) + '</b></p>' +
       (n ? '<p class="meldung gut">Neu bereit: ' + n + (n === 1 ? ' Set' : ' Sets') + ' – unter „Fragensets“ übernehmen.</p>' : '') +
       '<p class="leise">' + (datenStand ? 'Geladen am ' + esc(datumZeit(datenStand)) : 'Noch nicht geladen') + (ladeFehler ? ' · letzter Abruf fehlgeschlagen' : '') + '</p>' +
       '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><a class="knopf klein" href="#/sets">Fragensets</a>' +
-      '<button class="knopf zweit klein" data-neu>Datenquelle neu laden</button></div></section>';
+      '<button class="knopf zweit klein" data-neu' + (Q ? '' : ' disabled') + '>Fragen neu laden</button></div></section>';
   }
   function bindeFb() {
     var neu = app.querySelector('[data-neu]');
     if (neu) neu.addEventListener('click', function (e) {
       e.target.disabled = true; e.target.textContent = 'Lade …';
-      ladeFragenbank().then(function () { zeigeEinstellungen('<p class="meldung gut">Fragenbank neu geladen: ' + fragen.length + ' aktive Fragen.</p>'); },
+      ladeFragenbank().then(function () { zeigeEinstellungen('<p class="meldung gut">Fragen neu geladen: ' + fragen.length + ' aktive Fragen.</p>'); },
         function () { zeigeEinstellungen('<p class="meldung fehler">Laden fehlgeschlagen: ' + esc(ladeFehler) + '</p>'); });
     });
   }
@@ -1208,6 +1326,7 @@
     var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/start">' + IKON.links + 'Zurück</a></div>' +
       '<h1 class="gross">Einstellungen</h1>' + (meldung || '') + updateHinweis() +
       fragenbankKarte() +
+      '<section class="karte"><span class="ueber">Dein Name</span><input class="eingabe" type="text" maxlength="40" autocomplete="given-name" placeholder="für die Begrüßung (optional)" value="' + esc(S.name) + '" data-name></section>' +
       '<section class="karte"><span class="ueber">Lernstand</span><p class="leise">Der Lernstand liegt nur auf diesem Gerät. Sichere ihn ab und zu als Datei.' +
       (dateiNativ() ? ' Beide Seiten zeigen zuerst den Speicherort; erst dann tippst du auf „Exportieren“ bzw. wählst die Sicherung.' : '') + '</p>' +
       '<div class="knopfreihe" style="grid-template-columns:1fr 1fr">' +
@@ -1227,6 +1346,8 @@
     });
     var ex = app.querySelector('[data-export]');
     if (ex) ex.addEventListener('click', exportiere);
+    var nm = app.querySelector('[data-name]');
+    if (nm) nm.addEventListener('change', function () { S.name = nm.value.trim().slice(0, 40); speichere(); });
     bindeErinnerungen();
     bindeUpdate();
     bindeFb();
@@ -1292,7 +1413,7 @@
     setTimeout(function () { t.remove(); }, 5000);
   }
   function exportiere() {
-    var daten = JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
+    var daten = exportText();
     var d = new Date();
     var name = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
     // Android-App: eigene Export-Seite (Speicherort, dann Exportieren)
@@ -1312,15 +1433,36 @@
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
+  /* Export-Datei: Lernstand und (seit 1.8.0) die Datenquelle – beim Google Sheet Adresse und Schlüssel,
+     bei einer lokalen Datei deren Inhalt. Damit stellt ein Import auf einem neuen Handy alles wieder her. */
+  function exportText() {
+    var o = { app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S };
+    if (istSheet()) o.quelle = { art: 'sheet', url: Q.url, schluessel: Q.schluessel, name: Q.name || '' };
+    else if (Q && Q.art === 'datei') { var c = gemerkteCsv(); if (c) o.quelle = { art: 'datei', name: Q.name || '', csv: c.text }; }
+    return JSON.stringify(o, null, 1);
+  }
   function uebernimmLernstand(text) {
     try {
       var j = JSON.parse(text);
       var ls = j.lernstand || j;
       if (!ls || typeof ls.antworten !== 'object') throw new Error('Keine Lernstand-Datei');
-      if (!window.confirm('Lernstand aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
-      S = normalisiere(ls); speichere(); wendeThemaAn(); planeErinnerungen(false);
+      var q = j.quelle;
+      var mitQuelle = q && ((q.art === 'sheet' && q.url && q.schluessel) || (q.art === 'datei' && typeof q.csv === 'string'));
+      if (!window.confirm('Lernstand' + (mitQuelle ? ' und Datenquelle' : '') + ' aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
+      S = normalisiere(ls); speichere(); wendeThemaAn();
       sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
-      zuEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
+      var weiter = Promise.resolve();
+      if (mitQuelle && q.art === 'sheet') {
+        speichereQuelle({ art: 'sheet', url: q.url, schluessel: q.schluessel, name: q.name || 'Fragenbank' });
+        weiter = ladeFragenbank().catch(function () {});
+      } else if (mitQuelle) {
+        try { leseDatei(q.name, q.csv); } catch (e) {}
+      }
+      weiter.then(function () {
+        planeErinnerungen(false);
+        zuEinstellungen('<p class="meldung gut">Lernstand' + (mitQuelle ? ' und Datenquelle' : '') + ' importiert.</p>' +
+          (ladeFehler ? '<p class="meldung fehler">Fragen laden: ' + esc(ladeFehler) + '</p>' : ''));
+      });
     } catch (err) {
       zuEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc(err.message || err) + '</p>');
     }
@@ -1365,7 +1507,7 @@
     return 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
   }
   function lernstandDaten() {
-    return JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
+    return exportText();
   }
   /* Karte „Speicherort“ – gleich auf beiden Seiten */
   function ortKarte(datei, moeglich) {
@@ -1510,22 +1652,24 @@
       '<h1 class="gross">Datenschutzerklärung</h1>' +
       '<h2>1. Verantwortlicher</h2><p>Sascha Martin<br>E-Mail: <a href="mailto:Faceman33@web.de">Faceman33@web.de</a></p>' +
       '<h2>2. Dein Lernstand bleibt auf deinem Gerät</h2>' +
-      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst: in der Android-App im Ordner „Download/PMP-Lernpartner“ deines Handys oder in einem Ordner, den du selbst auswählst, im Browser dort, wo dein Browser Downloads ablegt. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
+      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema, deinen Namen für die Begrüßung, die Erinnerungszeiten und die Verbindung zu deiner Datenquelle (bei einem Google Sheet Adresse und persönlicher Schlüssel deines Skripts) speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Die Sicherungsdatei enthält auch die Verbindung; gib sie deshalb nicht weiter. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst: in der Android-App im Ordner „Download/PMP-Lernpartner“ deines Handys oder in einem Ordner, den du selbst auswählst, im Browser dort, wo dein Browser Downloads ablegt. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
       '<h2>3. Hosting bei GitHub</h2>' +
       '<p>Die Lern-App im Browser wird bei ' + ext('https://pages.github.com/', 'GitHub Pages') + ' bereitgestellt, die Android-App wird über GitHub zum Herunterladen angeboten (GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA; im EU-Raum vertreten durch GitHub B.V.). Beim Abruf verarbeitet GitHub technisch notwendige Daten, insbesondere die IP-Adresse, Datum und Uhrzeit, die angeforderte Datei und den verwendeten Browser (Server-Logfiles). Weitere Informationen: ' +
       ext('https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement', 'Datenschutzerklärung von GitHub') + '.</p>' +
       '<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einer sicheren und stabilen Bereitstellung). Dabei kann es zu einer Übermittlung in die USA kommen; GitHub ist nach dem EU-US Data Privacy Framework zertifiziert, das ein angemessenes Datenschutzniveau gewährleisten soll.</p>' +
-      '<h2>4. Fragenbank bei Google</h2>' +
-      '<p>Die Fragen liegen in einer veröffentlichten Google-Tabelle. Beim Laden ruft der PMP-Lernpartner sie direkt bei Google ab (Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland; Muttergesellschaft Google LLC, USA). Gleiches gilt, wenn du unter „Fragensets“ nach neuen Sets suchst oder sie übernimmst (Google Apps Script); dabei werden nur die gewünschte Aktion und ein technischer Schlüssel übermittelt. Google erhält dabei technisch notwendige Daten, insbesondere deine IP-Adresse, den Zeitpunkt und Angaben zu Browser bzw. Gerät. Dein Lernstand wird nicht übertragen. Weitere Informationen: ' +
+      '<h2>4. Deine Fragenbank</h2>' +
+      '<p>Der PMP-Lernpartner enthält selbst keine Fragen. Du verbindest ihn mit deiner eigenen Datenquelle; ich erhalte davon nichts.</p>' +
+      '<p><b>Lokale Datei:</b> Liest du eine CSV-Datei ein, bleiben die Fragen nur im Speicher deines Geräts. Es wird nichts übertragen.</p>' +
+      '<p><b>Eigenes Google Sheet:</b> Verbindest du ein Google Sheet, ruft der PMP-Lernpartner die Fragen über das Apps Script in deinem eigenen Google-Konto ab (Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland; Muttergesellschaft Google LLC, USA). Gleiches gilt, wenn du nach neuen Sets suchst oder sie übernimmst. Übermittelt werden nur die gewünschte Aktion und dein persönlicher Schlüssel; dein Lernstand wird nicht übertragen. Google erhält dabei technisch notwendige Daten, insbesondere deine IP-Adresse, den Zeitpunkt und Angaben zu Browser bzw. Gerät. Die Verbindungs-Mail schickt dein Skript aus deinem Google-Konto an dich selbst. Weitere Informationen: ' +
       ext('https://policies.google.com/privacy', 'Datenschutzerklärung von Google') + '.</p>' +
-      '<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse, die Fragen aktuell und korrigierbar bereitzustellen). Google LLC ist nach dem EU-US Data Privacy Framework zertifiziert.</p>' +
+      '<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse, deine Fragen aktuell und korrigierbar bereitzustellen). Google LLC ist nach dem EU-US Data Privacy Framework zertifiziert.</p>' +
       '<h2>5. Prüfung auf neue Versionen (nur Android-App)</h2>' +
       '<p>Die Android-App fragt höchstens alle sechs Stunden und wenn du „Nach Updates suchen“ wählst bei GitHub (api.github.com) die Nummer der neuesten Version ab. Dabei werden keine Daten über dich oder deinen Lernstand gesendet; GitHub erhält wie bei jedem Abruf deine IP-Adresse (siehe Abschnitt 3). Eine neue Version lädst du selbst über den Browser herunter.</p>' +
       '<h2>6. Erinnerungen und Berechtigungen (nur Android-App)</h2>' +
       '<p>Die drei täglichen Erinnerungen plant dein Handy selbst als lokale Benachrichtigungen. Es gibt keinen Push-Dienst und keinen Server, der dir Nachrichten schickt.</p>' +
-      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera oder Mikrofon greift sie nicht zu. Dateien schreibt sie nur, wenn du „Exportieren“ wählst, und zwar in den Ordner „Download/PMP-Lernpartner“ oder in einen Ordner, den du in der Ordnerauswahl von Android freigibst; beim Importieren liest sie nur die Sicherungen an diesem Speicherort oder die Datei, die du in der Dateiauswahl von Android auswählst. Eine allgemeine Speicher-Berechtigung braucht sie dafür nicht; mit „Standardordner verwenden“ nutzt sie den gewählten Ordner nicht mehr.</p>' +
+      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragen aus deinem Google Sheet laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera oder Mikrofon greift sie nicht zu. Dateien schreibt sie nur, wenn du „Exportieren“ wählst, und zwar in den Ordner „Download/PMP-Lernpartner“ oder in einen Ordner, den du in der Ordnerauswahl von Android freigibst; beim Importieren liest sie nur die Sicherungen an diesem Speicherort oder die Datei, die du in der Dateiauswahl von Android auswählst. Eine allgemeine Speicher-Berechtigung braucht sie dafür nicht; mit „Standardordner verwenden“ nutzt sie den gewählten Ordner nicht mehr.</p>' +
       '<h2>7. Keine Cookies, kein Tracking</h2>' +
-      '<p>Der PMP-Lernpartner setzt keine Cookies und verwendet keine Analyse- oder Werbedienste. Schriften und Programmcode kommen vom eigenen Server bzw. aus der Android-App selbst. Damit die Lern-App im Browser auch offline läuft, legt der Browser ihre Dateien und den zuletzt geladenen Stand der Fragenbank in seinem Speicher auf deinem Gerät ab.</p>' +
+      '<p>Der PMP-Lernpartner setzt keine Cookies und verwendet keine Analyse- oder Werbedienste. Schriften und Programmcode kommen vom eigenen Server bzw. aus der Android-App selbst. Damit der PMP-Lernpartner auch offline läuft, liegen seine Dateien und der zuletzt geladene Stand deiner Fragen im Speicher deines Geräts.</p>' +
       '<h2>8. Externe Links</h2>' +
       '<p>Links zu GitHub, Google und anderen Seiten öffnen fremde Angebote. Erst wenn du einen solchen Link antippst, verlässt du den PMP-Lernpartner; ab dann gilt die Datenschutzerklärung des jeweiligen Anbieters.</p>' +
       '<h2>9. Kontaktaufnahme</h2>' +
@@ -1535,6 +1679,96 @@
       '<h2>11. Aktualität</h2>' +
       '<p>Stand: November 2026 (Lern-App ' + APP_VERSION + '). Ich passe diese Erklärung an, wenn sich der PMP-Lernpartner oder die Rechtslage ändert.</p>' +
       '</article></main>';
+  }
+
+  /* ---------- Datenquelle (seit 1.8.0) ---------- */
+
+  function zeigeDatenquelle(meldung) {
+    var status;
+    if (!Q) status = '<p><b>Keine Datenquelle verbunden.</b></p><p class="leise">Verbinde dein eigenes Google Sheet oder lies eine CSV-Datei ein.' +
+      (fragen.length ? ' Bis dahin lernst du mit dem zuletzt geladenen Stand (' + fragen.length + ' Fragen).' : '') + '</p>';
+    else status = '<p><b>' + esc(quelleText()) + '</b></p><p class="leise">' + fragen.length + ' aktive Fragen' +
+      (datenStand ? ' · geladen am ' + esc(datumZeit(datenStand)) : '') + '</p>' +
+      (ladeFehler ? '<p class="meldung fehler">' + esc(ladeFehler) + '</p>' : '');
+    app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
+      '<h1 class="gross">Datenquelle</h1>' + (meldung || '') +
+      '<section class="karte"><span class="ueber">Status</span>' + status + '</section>' +
+      '<section class="karte"><span class="ueber">Google Sheet verbinden</span>' +
+      '<ol class="schritte">' +
+      '<li>Öffne deine Fragenbank in Google Sheets und wechsle unten zum Tab „Verbindung“.</li>' +
+      '<li>Hake „Verbindungs-Mail senden“ an und tippe am Handy in der Mail auf „PMP-Lernpartner verbinden“ – fertig. <span class="leise">Oder kopiere den Verbindungscode (beginnt mit „PMPLP1.“).</span></li>' +
+      '<li>Code hier einfügen und „Verbinden“ tippen.</li></ol>' +
+      '<a class="knopf zweit klein" href="https://docs.google.com/spreadsheets/" target="_blank" rel="noopener noreferrer">Google Sheets öffnen</a>' +
+      '<textarea class="eingabe" rows="3" placeholder="PMPLP1.…" autocomplete="off" autocapitalize="off" spellcheck="false" data-code></textarea>' +
+      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr">' +
+      (navigator.clipboard && navigator.clipboard.readText ? '<button class="knopf zweit klein" data-einfuegen>Einfügen</button>' : '<span></span>') +
+      '<button class="knopf klein" data-verbinden>Verbinden</button></div>' +
+      '<p class="leise">Der Code enthält deinen persönlichen Schlüssel. Er bleibt nur auf diesem Gerät und in deiner Lernstand-Sicherung. Gib ihn nicht weiter.</p></section>' +
+      '<section class="karte"><span class="ueber">Lokale Datei</span>' +
+      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–D). Wahlweise: aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
+      '<label class="knopf zweit klein" style="cursor:pointer">CSV-Datei wählen<input type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain" class="versteckt" data-csv></label></section>' +
+      (Q ? '<section class="karte"><span class="ueber">Trennen</span><p class="leise">Entfernt die Verbindung und die geladenen Fragen von diesem Gerät. Dein Lernstand bleibt erhalten.</p>' +
+        '<button class="knopf zweit klein" data-trennen>Trennen</button></section>' : '') +
+      '</main>';
+    var feld = app.querySelector('[data-code]');
+    var ein = app.querySelector('[data-einfuegen]');
+    if (ein) ein.addEventListener('click', function () {
+      navigator.clipboard.readText().then(function (t) { feld.value = String(t || '').trim(); },
+        function () { zeigeDatenquelle('<p class="meldung fehler">Einfügen nicht erlaubt. Halte das Feld gedrückt und wähle „Einfügen“.</p>'); });
+    });
+    var vb = app.querySelector('[data-verbinden]');
+    if (vb) vb.addEventListener('click', function () {
+      vb.disabled = true; vb.textContent = 'Verbinde …';
+      starteVerbindung(feld.value);
+    });
+    var csv = app.querySelector('[data-csv]');
+    if (csv) csv.addEventListener('change', function () {
+      var d = csv.files && csv.files[0];
+      if (!d) return;
+      var r = new FileReader();
+      r.onload = function () {
+        try {
+          leseDatei(d.name, String(r.result || ''));
+          zeigeDatenquelle('<p class="meldung gut">Datei „' + esc(d.name) + '“ eingelesen: ' + fragen.length + ' aktive Fragen.</p>');
+        } catch (err) {
+          zeigeDatenquelle('<p class="meldung fehler">Datei nicht übernommen: ' + esc(err.message || err) + '</p>');
+        }
+      };
+      r.onerror = function () { zeigeDatenquelle('<p class="meldung fehler">Datei konnte nicht gelesen werden.</p>'); };
+      r.readAsText(d, 'UTF-8');
+    });
+    var tr = app.querySelector('[data-trennen]');
+    if (tr) tr.addEventListener('click', function () {
+      if (!window.confirm('Datenquelle trennen? Die geladenen Fragen werden von diesem Gerät entfernt, dein Lernstand bleibt.')) return;
+      trenne();
+      zeigeDatenquelle('<p class="meldung gut">Getrennt.</p>');
+    });
+  }
+  function starteVerbindung(text) {
+    return verbinde(text).then(function () {
+      zurDatenquelle('<p class="meldung gut">Verbunden mit ' + esc(quelleText()) + ' · ' + fragen.length + ' aktive Fragen.</p>');
+    }, function (err) {
+      zurDatenquelle('<p class="meldung fehler">Verbinden fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+    });
+  }
+  function zurDatenquelle(html) {
+    if (aktuelleRoute().name === 'datenquelle') { zeigeDatenquelle(html); return; }
+    ui.meldung = html;
+    location.replace('#/datenquelle');
+  }
+  /* #/verbinden/<Code>: aus dem Mail-Link (Browser) oder aus der Android-App (App Links) */
+  function zeigeVerbinden(code) {
+    app.innerHTML = '<main class="seite">' + marke() + '<p class="leise">Verbinde mit deiner Fragenbank …</p></main>';
+    if (ui.verbindet === code) return;
+    ui.verbindet = code;
+    starteVerbindung(code).then(function () { ui.verbindet = null; });
+  }
+  function zeigeWillkommen() {
+    app.innerHTML = '<main class="seite">' + marke() +
+      '<div><h1 class="gross">Willkommen</h1><p class="unter">Der PMP-Lernpartner lernt mit deinen eigenen Fragen.</p></div>' +
+      '<section class="karte"><p>Verbinde zuerst deine Datenquelle: dein Google Sheet mit dem PMP-Lernpartner-Skript oder eine CSV-Datei mit Fragen.</p>' +
+      '<a class="knopf" href="#/datenquelle">Datenquelle verbinden</a></section>' +
+      '<p class="leise" style="text-align:center"><a href="#/datenschutz">Datenschutzerklärung</a></p></main>';
   }
 
   function wendeThemaAn() {
@@ -1555,9 +1789,18 @@
   }
 
   function render() {
+    var r0 = aktuelleRoute();
+    if (r0.name === 'datenquelle') { var m0 = ui.meldung; ui.meldung = null; return zeigeDatenquelle(m0); }
+    if (r0.name === 'verbinden') return zeigeVerbinden(r0.arg);
+    if (r0.name === 'datenschutz') return zeigeDatenschutz();
+    if (!fragen.length && !Q) {
+      if (r0.name === 'einstellungen') { var m1 = ui.meldung; ui.meldung = null; return zeigeEinstellungen(m1); }
+      return zeigeWillkommen();
+    }
     if (!fragen.length) {
       app.innerHTML = '<main class="seite">' + marke() +
-        (ladeFehler ? '<p class="meldung fehler">Die Fragenbank ist nicht erreichbar: ' + esc(ladeFehler) + '</p><button class="knopf" data-retry>Erneut versuchen</button>'
+        (ladeFehler ? '<p class="meldung fehler">Die Fragenbank ist nicht erreichbar: ' + esc(ladeFehler) + '</p><button class="knopf" data-retry>Erneut versuchen</button>' +
+          '<a class="knopf zweit" href="#/datenquelle">Datenquelle</a>'
           : '<p class="leise">Fragenbank wird geladen …</p>') + '</main>';
       var b = app.querySelector('[data-retry]');
       if (b) b.addEventListener('click', function () { ladeFehler = ''; render(); ladeFragenbank().then(render, render); });
@@ -1611,6 +1854,14 @@
     }
   });
 
+  /* Verbindungs-Link aus der Mail öffnet die Android-App (App Links, seit 1.8.0) */
+  var APP = PLUG.App || null;
+  if (APP) {
+    var oeffneLink = function (url) { var c = codeAusUrl(url); if (c) location.hash = '#/verbinden/' + c; };
+    try { APP.addListener('appUrlOpen', function (e) { oeffneLink(e && e.url); }); } catch (e) {}
+    try { APP.getLaunchUrl().then(function (r) { oeffneLink(r && r.url); }, function () {}); } catch (e) {}
+  }
+
   wendeThemaAn();
   var ausCache = ladeAusSpeicher();
   render();
@@ -1627,6 +1878,7 @@
   }
 
   /* Für Tests im Browser */
-  window.__pmp = { parseCsv: parseCsv, waehleFrage: waehleFrage, zustand: function () { return S; },
+  window.__pmp = { parseCsv: parseCsv, waehleFrage: waehleFrage, zustand: function () { return S; }, leseCode: leseCode, codeAusUrl: codeAusUrl,
+    quelle: function () { return Q; }, exportText: function () { return exportText(); }, fragenZahl: function () { return fragen.length; },
     evRechne: evRechne, evZahl: evZahl, evDeutung: evDeutung, EV_KZ: EV_KZ, EV_SZENARIEN: EV_SZENARIEN };
 })();

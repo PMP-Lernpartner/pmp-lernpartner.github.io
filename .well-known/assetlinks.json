@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.pmplernpartner",
+      "sha256_cert_fingerprints": ["CC:69:77:10:B9:7F:18:C1:5A:69:C6:0F:82:D4:58:4C:F7:38:3F:26:83:EC:C8:13:8E:B3:85:04:71:ED:70:80"]
+    }
+  }
+]

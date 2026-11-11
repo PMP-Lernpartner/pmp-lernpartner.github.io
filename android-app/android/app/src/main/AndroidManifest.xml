@@ -22,6 +22,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Verbindungs-Link aus der Mail des Skripts (seit Lern-App 1.8.0):
+                 https://pmp-lernpartner.github.io/verbinden/… öffnet die Android-App.
+                 Bestätigt über /.well-known/assetlinks.json (Fingerabdruck des Signaturschlüssels). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="pmp-lernpartner.github.io" android:pathPrefix="/verbinden" />
+            </intent-filter>
+
         </activity>
 
         <provider
