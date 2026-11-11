@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.5.0';
+  var APP_VERSION = '1.6.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -175,13 +175,24 @@
     if (s) s.addEventListener('click', exportiere);
   }
 
-  function erinnerungsText() {
-    var d = fragen.map(function (q) { return q.domain; }).filter(Boolean);
-    return d.length ? 'Heute im Fokus: ' + d[Math.floor(Math.random() * d.length)] + '.' : 'Eine Frage wartet auf dich.';
+  /* Seit Lern-App 1.6.0: Die Erinnerung nennt die Frage, die als nächste kommt (S.offen = vorgemerkte Frage),
+     und ein Tipp öffnet genau diese. Vorher stand dort eine zufällige Domain ohne Bezug zur Frage. */
+  function vorgemerkteFrage() {
+    if (!fragen.length) return null;
+    if (S.offen && nachId[S.offen] && fragenImSet(S.aktivesSet).some(function (q) { return q.id === S.offen; })) return nachId[S.offen];
+    var r = waehleFrage(S.aktivesSet, sitzung.quelle === 'lernen' ? sitzung.id : null);
+    if (!r.q) return null;
+    S.offen = r.q.id; speichere();
+    return r.q;
   }
-  function erinnerungsNachricht(id, schedule) {
-    return { id: id, title: 'PMP: Zeit für eine Frage', body: erinnerungsText(), channelId: 'erinnerungen',
-      schedule: schedule, extra: { ziel: '#/frage' } };
+  function erinnerungsText(q) {
+    if (!q) return 'Eine Frage wartet auf dich.';
+    var teile = [q.domain, q.prozess].filter(Boolean).join(' · ');
+    return (S.fehler[q.id] ? 'Wiederholung: ' : 'Nächste Frage: ') + (teile || 'PMP');
+  }
+  function erinnerungsNachricht(id, schedule, q) {
+    return { id: id, title: 'PMP: Zeit für eine Frage', body: erinnerungsText(q), channelId: 'erinnerungen',
+      schedule: schedule, extra: { ziel: '#/frage', frage: q ? q.id : '' } };
   }
   function erlaubnis(fragen) {
     return LN.checkPermissions().then(function (p) {
@@ -192,8 +203,10 @@
   /* Plant die drei täglichen Erinnerungen neu (beim Start, nach Änderungen, beim Zurückkehren in die App). */
   function planeErinnerungen(mitNachfrage) {
     if (!LN) return Promise.resolve();
-    if (erin.laeuft) return erin.laeuft;
+    // Läuft schon eine Planung, danach noch einmal planen (z. B. nach einer Antwort steht eine neue Frage an).
+    if (erin.laeuft) { erin.nochmal = true; return erin.laeuft; }
     var e = S.erinnerung;
+    var q = vorgemerkteFrage();
     erin.laeuft = LN.cancel({ notifications: ERINNERUNG_IDS.map(function (id) { return { id: id }; }) })
       .catch(function () {})
       .then(function () {
@@ -205,30 +218,39 @@
             .then(function () {
               return LN.schedule({ notifications: e.zeiten.map(function (z, i) {
                 var t = z.split(':');
-                return erinnerungsNachricht(ERINNERUNG_IDS[i], { on: { hour: +t[0], minute: +t[1] }, allowWhileIdle: true, isExactNotification: false });
+                return erinnerungsNachricht(ERINNERUNG_IDS[i], { on: { hour: +t[0], minute: +t[1] }, allowWhileIdle: true, isExactNotification: false }, q);
               }) });
             })
             .then(function () { erin.geplant = e.zeiten.length; erin.fehler = ''; });
         });
       })
       .catch(function (err) { erin.fehler = String((err && err.message) || err); })
-      .then(function () { erin.laeuft = null; });
+      .then(function () {
+        erin.laeuft = null;
+        if (erin.nochmal) { erin.nochmal = false; return planeErinnerungen(false); }
+      });
     return erin.laeuft;
   }
   function testErinnerung() {
     if (!LN) return Promise.resolve();
     return erlaubnis(true).then(function (ok) {
       if (!ok) throw new Error('Benachrichtigungen sind für die App nicht erlaubt.');
-      return LN.schedule({ notifications: [erinnerungsNachricht(TEST_ID, { at: new Date(Date.now() + 60000), allowWhileIdle: true, isExactNotification: false })] });
+      return LN.schedule({ notifications: [erinnerungsNachricht(TEST_ID, { at: new Date(Date.now() + 60000), allowWhileIdle: true, isExactNotification: false }, vorgemerkteFrage())] });
     });
   }
   if (LN) {
     LN.addListener('localNotificationActionPerformed', function (a) {
-      var ziel = (a && a.notification && a.notification.extra && a.notification.extra.ziel) || '#/frage';
-      if (location.hash !== ziel) location.hash = ziel;
+      var extra = (a && a.notification && a.notification.extra) || {};
+      var ziel = extra.ziel || '#/frage';
+      // Genau die Frage öffnen, die in der Erinnerung stand
+      if (extra.frage && nachId[extra.frage] && !(sitzung.quelle === 'lernen' && sitzung.id === extra.frage)) {
+        sitzung = { id: extra.frage, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
+        S.offen = extra.frage; speichere();
+      }
+      if (location.hash !== ziel) location.hash = ziel; else render();
     });
   }
-  /* Export in der Android-App: Datei im Cache ablegen und über "Teilen" speichern (z. B. ins Drive). */
+  /* Nur noch Rückfall für Android-Apps ohne DateiPlugin (vor 1.1.8): Datei im Cache ablegen und über "Teilen" speichern. */
   function exportiereNativ(name, daten) {
     var FS = PLUG.Filesystem, SH = PLUG.Share;
     if (!FS || !SH) return Promise.reject(new Error('Export ist in dieser Version nicht verfügbar.'));
@@ -514,6 +536,7 @@
         sitzung.antwort = antworte(q, el.getAttribute('data-wahl'));
         sitzung.phase = 'feedback';
         render();
+        planeErinnerungen(false); // Erinnerung nennt jetzt die nächste Frage
         window.scrollTo(0, 0);
       });
     });
@@ -578,6 +601,10 @@
       return;
     }
     var r = waehleFrage(S.aktivesSet, aus);
+    // Eine schon vorgemerkte Frage (steht in der Erinnerung) kommt zuerst
+    if (S.offen && S.offen !== aus && nachId[S.offen] && fragenImSet(S.aktivesSet).some(function (q) { return q.id === S.offen; })) {
+      r = { q: nachId[S.offen], durch: r.durch };
+    }
     sitzung = { id: r.q ? r.q.id : null, phase: 'frage', antwort: null, quelle: 'lernen', durch: r.durch };
     S.offen = sitzung.id;
     speichere();
@@ -1176,13 +1203,13 @@
   function zeigeEinstellungen(meldung) {
     var t = S.theme;
     var importKnopf = dateiNativ()
-      ? '<button class="knopf zweit klein" data-import-nativ>Importieren</button>'
+      ? '<a class="knopf zweit klein" href="#/import">Importieren</a>'
       : '<label class="knopf zweit klein" style="cursor:pointer">Importieren<input type="file" accept="application/json,.json" class="versteckt" data-import></label>';
     var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/start">' + IKON.links + 'Zurück</a></div>' +
       '<h1 class="gross">Einstellungen</h1>' + (meldung || '') + updateHinweis() +
       fragenbankKarte() +
       '<section class="karte"><span class="ueber">Lernstand</span><p class="leise">Der Lernstand liegt nur auf diesem Gerät. Sichere ihn ab und zu als Datei.' +
-      (dateiNativ() ? ' „Exportieren“ öffnet „Speichern unter“ von Android – wähle z. B. den Ordner Downloads.' : '') + '</p>' +
+      (dateiNativ() ? ' „Exportieren“ speichert sofort im Ordner Download/PMP-Lernpartner (eine Datei pro Tag).' : '') + '</p>' +
       '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit klein" data-export>Exportieren</button>' + importKnopf + '</div></section>' +
       erinnerungsKarte() +
       '<section class="karte"><span class="ueber">Darstellung</span><div class="segment" role="group" aria-label="Farbschema">' +
@@ -1207,8 +1234,6 @@
     });
     var imp = app.querySelector('[data-import]');
     if (imp) imp.addEventListener('change', importiere);
-    var impN = app.querySelector('[data-import-nativ]');
-    if (impN) impN.addEventListener('click', importiereNativ);
     pruefeVorrat();
   }
 
@@ -1269,12 +1294,23 @@
     var name = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
     var datei = dateiNativ();
     if (datei) {
-      // Android-App: "Speichern unter" des Systems (DateiPlugin.java)
-      datei.speichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
-        meldeErgebnis('<p class="meldung gut">Lernstand gespeichert: ' + esc((r && r.name) || name) + '</p>');
-      }, function (err) {
+      var fehler = function (err) {
         if (abgebrochen(err)) return;
         meldeErgebnis('<p class="meldung fehler">Speichern fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+      };
+      // "Speichern unter" des Systems: Rückfall vor Android 10 (DateiPlugin.java)
+      var mitDialog = function () {
+        return datei.speichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
+          meldeErgebnis('<p class="meldung gut">Lernstand gespeichert: ' + esc((r && r.name) || name) + '</p>');
+        }, fehler);
+      };
+      // Seit 1.6.0: direkt in Download/PMP-Lernpartner, ohne Dialog
+      if (!datei.sichern) { mitDialog(); return; }
+      datei.sichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
+        meldeErgebnis('<p class="meldung gut">Lernstand gespeichert in ' + esc((r && r.ort) || 'Download/PMP-Lernpartner') + ': ' + esc((r && r.name) || name) + '</p>');
+      }, function (err) {
+        if (err && err.code === 'NICHT_MOEGLICH') { mitDialog(); return; }
+        fehler(err);
       });
       return;
     }
@@ -1301,10 +1337,16 @@
       if (!window.confirm('Lernstand aus der Datei übernehmen? Der aktuelle Lernstand auf diesem Gerät wird ersetzt.')) return;
       S = normalisiere(ls); speichere(); wendeThemaAn(); planeErinnerungen(false);
       sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
-      zeigeEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
+      zuEinstellungen('<p class="meldung gut">Lernstand importiert.</p>');
     } catch (err) {
-      zeigeEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc(err.message || err) + '</p>');
+      zuEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc(err.message || err) + '</p>');
     }
+  }
+  /* Einstellungen mit Meldung zeigen – auch von der Import-Seite aus (dann erst die Adresse wechseln). */
+  function zuEinstellungen(html) {
+    if (aktuelleRoute().name === 'einstellungen') { zeigeEinstellungen(html); return; }
+    ui.meldung = html;
+    location.hash = '#/einstellungen';
   }
   function importiere(e) {
     var d = e.target.files && e.target.files[0];
@@ -1313,11 +1355,58 @@
     r.onload = function () { uebernimmLernstand(r.result); };
     r.readAsText(d);
   }
-  /* Android-App: "Öffnen" des Systems (DateiPlugin.java) */
+  /* Android-App: "Öffnen" des Systems (DateiPlugin.java) – auf der Import-Seite unter „Andere Datei wählen…“ */
   function importiereNativ() {
     dateiNativ().oeffnen().then(function (r) { uebernimmLernstand(r && r.inhalt); }, function (err) {
       if (abgebrochen(err)) return;
-      zeigeEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+      zuEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+    });
+  }
+
+  /* ---------- Import-Seite der Android-App (seit Lern-App 1.6.0) ----------
+     Eigene Liste der Sicherungen in Download/PMP-Lernpartner mit „Abbrechen“; der Dialog von Android
+     kommt nur noch über „Andere Datei wählen…“. */
+  function groesse(b) { return b >= 1024 * 1024 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+  function zeigeImport() {
+    var datei = dateiNativ();
+    if (!datei) { location.hash = '#/einstellungen'; return; }
+    var seite = function (inhalt) {
+      app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
+        '<h1 class="gross">Lernstand importieren</h1>' + inhalt +
+        '<div class="knopfreihe" style="grid-template-columns:1fr"><button class="knopf zweit" data-andere>Andere Datei wählen …</button>' +
+        '<a class="knopf" href="#/einstellungen" data-abbrechen>Abbrechen</a></div></main>';
+      app.querySelector('[data-andere]').addEventListener('click', importiereNativ);
+      app.querySelectorAll('[data-sicherung]').forEach(function (el) {
+        el.addEventListener('click', function () {
+          el.disabled = true;
+          datei.lesen({ id: el.getAttribute('data-sicherung') }).then(function (r) {
+            el.disabled = false; uebernimmLernstand(r && r.inhalt);
+          }, function (err) {
+            el.disabled = false;
+            zuEinstellungen('<p class="meldung fehler">Import fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+          });
+        });
+      });
+    };
+    if (!datei.sicherungen) { seite('<p class="leise">Wähle die Datei mit deinem Lernstand.</p>'); return; }
+    seite('<p class="leise">Sicherungen werden gesucht …</p>');
+    datei.sicherungen().then(function (r) {
+      if (aktuelleRoute().name !== 'import') return;
+      var liste = (r && r.liste) || [], ort = esc((r && r.ort) || 'Download/PMP-Lernpartner');
+      if (r && r.moeglich === false) { seite('<p class="leise">Auf diesem Handy (vor Android 10) geht der Import nur über die Dateiauswahl von Android.</p>'); return; }
+      if (!liste.length) {
+        seite('<section class="karte"><span class="ueber">Deine Sicherungen</span><p class="leise">Noch keine Sicherung im Ordner ' + ort + ' gefunden. Mit „Exportieren“ legst du eine an. ' +
+          'Dateien aus der Lern-App im Browser, aus Drive oder von vor einer Neuinstallation findest du über „Andere Datei wählen …“.</p></section>');
+        return;
+      }
+      seite('<section class="karte"><span class="ueber">Deine Sicherungen</span><p class="leise">Aus dem Ordner ' + ort + '. Antippen übernimmt den Lernstand – vorher kommt eine Rückfrage.</p>' +
+        '<div class="sicherungen">' + liste.map(function (e) {
+          return '<button class="sicherung" data-sicherung="' + esc(e.id) + '"><span class="name">' + esc(e.name) + '</span>' +
+            '<span class="leise">' + esc(datumZeit(e.geaendert)) + ' · ' + esc(groesse(e.groesse || 0)) + '</span></button>';
+        }).join('') + '</div></section>');
+    }, function (err) {
+      if (aktuelleRoute().name !== 'import') return;
+      seite('<p class="meldung fehler">Sicherungen lassen sich nicht lesen: ' + esc((err && err.message) || err) + '</p>');
     });
   }
 
@@ -1330,7 +1419,7 @@
       '<h1 class="gross">Datenschutzerklärung</h1>' +
       '<h2>1. Verantwortlicher</h2><p>Sascha Martin<br>E-Mail: <a href="mailto:Faceman33@web.de">Faceman33@web.de</a></p>' +
       '<h2>2. Dein Lernstand bleibt auf deinem Gerät</h2>' +
-      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst; sie liegt dann an dem Ort, den du aussuchst. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
+      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst: in der Android-App im Ordner „Download/PMP-Lernpartner“ deines Handys, im Browser dort, wo dein Browser Downloads ablegt. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
       '<h2>3. Hosting bei GitHub</h2>' +
       '<p>Die Lern-App im Browser wird bei ' + ext('https://pages.github.com/', 'GitHub Pages') + ' bereitgestellt, die Android-App wird über GitHub zum Herunterladen angeboten (GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA; im EU-Raum vertreten durch GitHub B.V.). Beim Abruf verarbeitet GitHub technisch notwendige Daten, insbesondere die IP-Adresse, Datum und Uhrzeit, die angeforderte Datei und den verwendeten Browser (Server-Logfiles). Weitere Informationen: ' +
       ext('https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement', 'Datenschutzerklärung von GitHub') + '.</p>' +
@@ -1343,7 +1432,7 @@
       '<p>Die Android-App fragt höchstens alle sechs Stunden und wenn du „Nach Updates suchen“ wählst bei GitHub (api.github.com) die Nummer der neuesten Version ab. Dabei werden keine Daten über dich oder deinen Lernstand gesendet; GitHub erhält wie bei jedem Abruf deine IP-Adresse (siehe Abschnitt 3). Eine neue Version lädst du selbst über den Browser herunter.</p>' +
       '<h2>6. Erinnerungen und Berechtigungen (nur Android-App)</h2>' +
       '<p>Die drei täglichen Erinnerungen plant dein Handy selbst als lokale Benachrichtigungen. Es gibt keinen Push-Dienst und keinen Server, der dir Nachrichten schickt.</p>' +
-      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera, Mikrofon oder deinen Speicher greift sie nicht zu; Dateien liest oder schreibt sie nur, wenn du sie in der Dateiauswahl von Android selbst auswählst.</p>' +
+      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera oder Mikrofon greift sie nicht zu. Dateien schreibt sie nur, wenn du „Exportieren“ wählst, und zwar in den Ordner „Download/PMP-Lernpartner“; beim Importieren zeigt sie nur die Sicherungen, die sie dort selbst angelegt hat, oder die Datei, die du in der Dateiauswahl von Android auswählst. Eine Speicher-Berechtigung braucht sie dafür nicht.</p>' +
       '<h2>7. Keine Cookies, kein Tracking</h2>' +
       '<p>Der PMP-Lernpartner setzt keine Cookies und verwendet keine Analyse- oder Werbedienste. Schriften und Programmcode kommen vom eigenen Server bzw. aus der Android-App selbst. Damit die Lern-App im Browser auch offline läuft, legt der Browser ihre Dateien und den zuletzt geladenen Stand der Fragenbank in seinem Speicher auf deinem Gerät ab.</p>' +
       '<h2>8. Externe Links</h2>' +
@@ -1399,7 +1488,8 @@
       if (sitzung.quelle !== 'fokus' || sitzung.fokus !== r.arg) sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'fokus', fokus: r.arg, durch: false };
       return zeigeFrage();
     }
-    if (r.name === 'einstellungen') return zeigeEinstellungen();
+    if (r.name === 'einstellungen') { var m = ui.meldung; ui.meldung = null; return zeigeEinstellungen(m); }
+    if (r.name === 'import') return zeigeImport();
     if (r.name === 'datenschutz') return zeigeDatenschutz();
     return zeigeStart();
   }

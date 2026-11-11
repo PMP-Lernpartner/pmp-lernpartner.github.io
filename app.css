@@ -288,3 +288,9 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 .rechtlich h2 { font-family: var(--head); font-size: 18px; font-weight: 600; margin: 14px 0 0; }
 .rechtlich p { margin: 0; }
 .rechtlich a { color: var(--accent-text); overflow-wrap: anywhere; }
+
+/* Import-Seite der Android-App (Lern-App 1.6.0) */
+.sicherungen { display: grid; gap: 8px; margin-top: 10px; }
+.sicherung { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 56px; padding: 10px 14px; text-align: left; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--strong); border-radius: 12px; cursor: pointer; }
+.sicherung .name { font-weight: 600; word-break: break-all; }
+.sicherung:disabled { opacity: .6; }

@@ -1,6 +1,6 @@
 /* PMP-Lernpartner – Service Worker: App-Dateien offline verfügbar, online immer frisch. */
-const CACHE = 'pmplp-v8';
-const DATEIEN = ['./', 'index.html', 'app.css?v=6', 'config.js?v=2', 'app.js?v=6', 'manifest.webmanifest',
+const CACHE = 'pmplp-v9';
+const DATEIEN = ['./', 'index.html', 'app.css?v=7', 'config.js?v=2', 'app.js?v=7', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
   'fonts/inter-latin-400-normal.woff2', 'fonts/inter-latin-500-normal.woff2', 'fonts/inter-latin-600-normal.woff2',
   'fonts/inter-latin-700-normal.woff2', 'fonts/space-grotesk-latin-500-normal.woff2', 'fonts/space-grotesk-latin-600-normal.woff2',
