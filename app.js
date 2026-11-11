@@ -8,7 +8,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.6.0';
+  var APP_VERSION = '1.7.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   var TAG_MS = 86400000;
@@ -172,7 +172,7 @@
   }
   function bindeUpdate() {
     var s = app.querySelector('[data-update-sichern]');
-    if (s) s.addEventListener('click', exportiere);
+    if (s) s.addEventListener('click', function () { if (dateiNativ()) location.hash = '#/export'; else exportiere(); });
   }
 
   /* Seit Lern-App 1.6.0: Die Erinnerung nennt die Frage, die als nächste kommt (S.offen = vorgemerkte Frage),
@@ -1209,8 +1209,10 @@
       '<h1 class="gross">Einstellungen</h1>' + (meldung || '') + updateHinweis() +
       fragenbankKarte() +
       '<section class="karte"><span class="ueber">Lernstand</span><p class="leise">Der Lernstand liegt nur auf diesem Gerät. Sichere ihn ab und zu als Datei.' +
-      (dateiNativ() ? ' „Exportieren“ speichert sofort im Ordner Download/PMP-Lernpartner (eine Datei pro Tag).' : '') + '</p>' +
-      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr"><button class="knopf zweit klein" data-export>Exportieren</button>' + importKnopf + '</div></section>' +
+      (dateiNativ() ? ' Beide Seiten zeigen zuerst den Speicherort; erst dann tippst du auf „Exportieren“ bzw. wählst die Sicherung.' : '') + '</p>' +
+      '<div class="knopfreihe" style="grid-template-columns:1fr 1fr">' +
+      (dateiNativ() ? '<a class="knopf zweit klein" href="#/export">Exportieren</a>' : '<button class="knopf zweit klein" data-export>Exportieren</button>') +
+      importKnopf + '</div></section>' +
       erinnerungsKarte() +
       '<section class="karte"><span class="ueber">Darstellung</span><div class="segment" role="group" aria-label="Farbschema">' +
       [['hell', 'Hell'], ['dunkel', 'Dunkel'], ['auto', 'Auto']].map(function (m) {
@@ -1223,7 +1225,8 @@
     app.querySelectorAll('[data-theme]').forEach(function (el) {
       el.addEventListener('click', function () { S.theme = el.getAttribute('data-theme'); speichere(); wendeThemaAn(); render(); });
     });
-    app.querySelector('[data-export]').addEventListener('click', exportiere);
+    var ex = app.querySelector('[data-export]');
+    if (ex) ex.addEventListener('click', exportiere);
     bindeErinnerungen();
     bindeUpdate();
     bindeFb();
@@ -1292,28 +1295,8 @@
     var daten = JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
     var d = new Date();
     var name = 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
-    var datei = dateiNativ();
-    if (datei) {
-      var fehler = function (err) {
-        if (abgebrochen(err)) return;
-        meldeErgebnis('<p class="meldung fehler">Speichern fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
-      };
-      // "Speichern unter" des Systems: Rückfall vor Android 10 (DateiPlugin.java)
-      var mitDialog = function () {
-        return datei.speichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
-          meldeErgebnis('<p class="meldung gut">Lernstand gespeichert: ' + esc((r && r.name) || name) + '</p>');
-        }, fehler);
-      };
-      // Seit 1.6.0: direkt in Download/PMP-Lernpartner, ohne Dialog
-      if (!datei.sichern) { mitDialog(); return; }
-      datei.sichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) {
-        meldeErgebnis('<p class="meldung gut">Lernstand gespeichert in ' + esc((r && r.ort) || 'Download/PMP-Lernpartner') + ': ' + esc((r && r.name) || name) + '</p>');
-      }, function (err) {
-        if (err && err.code === 'NICHT_MOEGLICH') { mitDialog(); return; }
-        fehler(err);
-      });
-      return;
-    }
+    // Android-App: eigene Export-Seite (Speicherort, dann Exportieren)
+    if (dateiNativ()) { location.hash = '#/export'; return; }
     if (NATIV) {
       // ältere Android-App ohne DateiPlugin: über "Teilen"
       exportiereNativ(name, daten).catch(function (err) {
@@ -1363,18 +1346,119 @@
     });
   }
 
-  /* ---------- Import-Seite der Android-App (seit Lern-App 1.6.0) ----------
-     Eigene Liste der Sicherungen in Download/PMP-Lernpartner mit „Abbrechen“; der Dialog von Android
-     kommt nur noch über „Andere Datei wählen…“. */
+  /* ---------- Export- und Import-Seite der Android-App ----------
+     Seit 1.6.0 Import-Seite, seit 1.7.0 Export-Seite nach demselben Aufbau: zuerst der Speicherort
+     (Standard Download/PMP-Lernpartner oder ein selbst gewählter Ordner), dann bestätigen – mit „Abbrechen“.
+     Der gewählte Ordner gilt nur für dieses Gerät und steht deshalb nicht im Lernstand (Schlüssel pmplp.ordner). */
+  var STANDARD_ORT = 'Download/PMP-Lernpartner';
+  function gewaehlterOrdner() {
+    try { var o = JSON.parse(localStorage.getItem('pmplp.ordner') || 'null'); return o && o.ordner ? o : null; } catch (e) { return null; }
+  }
+  function merkeOrdner(o) {
+    try { if (o) localStorage.setItem('pmplp.ordner', JSON.stringify({ ordner: o.ordner, name: o.name })); else localStorage.removeItem('pmplp.ordner'); } catch (e) {}
+  }
+  function ordnerArg() { var o = gewaehlterOrdner(); return o ? { ordner: o.ordner } : {}; }
+  function keinZugriff(err) { return !!err && err.code === 'KEIN_ZUGRIFF'; }
   function groesse(b) { return b >= 1024 * 1024 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
-  function zeigeImport() {
+  function heutigerName() {
+    var d = new Date();
+    return 'pmp-lernstand-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.json';
+  }
+  function lernstandDaten() {
+    return JSON.stringify({ app: 'PMP-Lernpartner', version: APP_VERSION, exportiert: new Date().toISOString(), lernstand: S }, null, 1);
+  }
+  /* Karte „Speicherort“ – gleich auf beiden Seiten */
+  function ortKarte(datei, moeglich) {
+    var o = gewaehlterOrdner();
+    var ort = o ? esc(o.name) : moeglich === false ? 'wird im Dialog von Android gewählt' : STANDARD_ORT;
+    return '<section class="karte"><span class="ueber">Speicherort</span><p class="ortname">' + ort + '</p>' +
+      '<p class="leise">' + (o ? 'Von dir gewählter Ordner.' : moeglich === false ? 'Auf diesem Handy (vor Android 10) gibt es keinen Standardordner.' : 'Standardordner im Download-Ordner deines Handys.') + '</p>' +
+      (datei.ordnerWaehlen ? '<div class="knopfreihe" style="grid-template-columns:1fr"><button class="knopf zweit klein" data-ordner-waehlen>Anderen Ordner wählen …</button>' +
+        (o ? '<button class="knopf zweit klein" data-ordner-standard>Standardordner verwenden</button>' : '') + '</div>' : '') + '</section>';
+  }
+  function bindeOrt(datei, neuZeichnen) {
+    var w = app.querySelector('[data-ordner-waehlen]');
+    if (w) w.addEventListener('click', function () {
+      datei.ordnerWaehlen().then(function (r) { merkeOrdner(r); neuZeichnen(); }, function (err) {
+        if (abgebrochen(err)) return;
+        neuZeichnen('<p class="meldung fehler">Ordner lässt sich nicht verwenden: ' + esc((err && err.message) || err) + '</p>');
+      });
+    });
+    var st = app.querySelector('[data-ordner-standard]');
+    if (st) st.addEventListener('click', function () { merkeOrdner(null); neuZeichnen(); });
+  }
+  function seitenRahmen(titel, meldung, inhalt, knoepfe) {
+    return '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
+      '<h1 class="gross">' + titel + '</h1>' + (meldung || '') + inhalt +
+      '<div class="knopfreihe" style="grid-template-columns:1fr">' + knoepfe + '</div></main>';
+  }
+  /* Sicherungen am Speicherort holen; ist der gewählte Ordner nicht mehr erreichbar, zurück auf den Standard. */
+  function holeSicherungen(datei) {
+    if (!datei.sicherungen) return Promise.resolve({ moeglich: false, liste: [] });
+    return datei.sicherungen(ordnerArg()).catch(function (err) {
+      if (!keinZugriff(err)) throw err;
+      merkeOrdner(null);
+      return datei.sicherungen({}).then(function (r) { r.hinweis = 'Auf den gewählten Ordner gibt es keinen Zugriff mehr – zurück auf ' + STANDARD_ORT + '.'; return r; });
+    });
+  }
+
+  function zeigeExport(meldung) {
     var datei = dateiNativ();
     if (!datei) { location.hash = '#/einstellungen'; return; }
+    var name = heutigerName(), info = null, moeglich = true, laeuft = false;
+    var zeichne = function (m) {
+      if (m !== undefined) meldung = m;
+      var dateiInfo = info === null ? 'Speicherort wird geprüft …'
+        : info.heute ? 'Eine Sicherung von heute liegt dort schon und wird ersetzt.'
+        : info.anzahl ? 'Dort liegen ' + info.anzahl + (info.anzahl === 1 ? ' Sicherung' : ' Sicherungen') + ', die neueste vom ' + esc(datumZeit(info.neueste)) + '.'
+        : 'Dort liegt noch keine Sicherung.';
+      app.innerHTML = seitenRahmen('Lernstand exportieren', meldung,
+        ortKarte(datei, moeglich) +
+        '<section class="karte"><span class="ueber">Datei</span><p class="ortname">' + esc(name) + '</p><p class="leise">' + dateiInfo + '</p></section>',
+        '<button class="knopf" data-exportieren' + (laeuft ? ' disabled' : '') + '>Exportieren</button>' +
+        '<a class="knopf zweit" href="#/einstellungen" data-abbrechen>Abbrechen</a>');
+      bindeOrt(datei, function (m2) { info = null; zeichne(m2 || ''); lade(); });
+      app.querySelector('[data-exportieren]').addEventListener('click', exportieren);
+    };
+    var lade = function () {
+      holeSicherungen(datei).then(function (r) {
+        if (aktuelleRoute().name !== 'export') return;
+        moeglich = !(r && r.moeglich === false) || !!gewaehlterOrdner();
+        var liste = (r && r.liste) || [];
+        info = { anzahl: liste.length, heute: liste.some(function (e) { return e.name === name; }),
+          neueste: liste.reduce(function (m, e) { return Math.max(m, e.geaendert || 0); }, 0) };
+        zeichne(r && r.hinweis ? '<p class="meldung">' + esc(r.hinweis) + '</p>' : undefined);
+      }, function () { if (aktuelleRoute().name === 'export') { info = { anzahl: 0 }; zeichne(); } });
+    };
+    var exportieren = function () {
+      laeuft = true; zeichne();
+      var daten = lernstandDaten();
+      var fertig = function (r, ort) { zuEinstellungen('<p class="meldung gut">Lernstand gespeichert' + (ort ? ' in ' + esc(ort) : '') + ': ' + esc((r && r.name) || name) + '</p>'); };
+      var fehler = function (err) {
+        laeuft = false;
+        if (abgebrochen(err)) { zeichne(); return; }
+        if (keinZugriff(err)) { merkeOrdner(null); info = null; zeichne('<p class="meldung fehler">Auf den gewählten Ordner gibt es keinen Zugriff mehr. Wähle ihn neu oder nimm den Standardordner.</p>'); lade(); return; }
+        zeichne('<p class="meldung fehler">Speichern fehlgeschlagen: ' + esc((err && err.message) || err) + '</p>');
+      };
+      var mitDialog = function () { datei.speichern({ name: name, inhalt: daten, mime: 'application/json' }).then(function (r) { fertig(r, ''); }, fehler); };
+      if (!datei.sichern) { mitDialog(); return; }
+      datei.sichern(Object.assign({ name: name, inhalt: daten, mime: 'application/json' }, ordnerArg())).then(function (r) {
+        fertig(r, (r && r.ort) || STANDARD_ORT);
+      }, function (err) { if (err && err.code === 'NICHT_MOEGLICH') mitDialog(); else fehler(err); });
+    };
+    zeichne(); lade();
+  }
+
+  function zeigeImport(meldung) {
+    var datei = dateiNativ();
+    if (!datei) { location.hash = '#/einstellungen'; return; }
+    var moeglich = true;
     var seite = function (inhalt) {
-      app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="#/einstellungen">' + IKON.links + 'Einstellungen</a></div>' +
-        '<h1 class="gross">Lernstand importieren</h1>' + inhalt +
-        '<div class="knopfreihe" style="grid-template-columns:1fr"><button class="knopf zweit" data-andere>Andere Datei wählen …</button>' +
-        '<a class="knopf" href="#/einstellungen" data-abbrechen>Abbrechen</a></div></main>';
+      app.innerHTML = seitenRahmen('Lernstand importieren', meldung,
+        ortKarte(datei, moeglich) + inhalt,
+        '<button class="knopf zweit" data-andere>Andere Datei wählen …</button>' +
+        '<a class="knopf" href="#/einstellungen" data-abbrechen>Abbrechen</a>');
+      bindeOrt(datei, function (m) { meldung = m || ''; laden(); });
       app.querySelector('[data-andere]').addEventListener('click', importiereNativ);
       app.querySelectorAll('[data-sicherung]').forEach(function (el) {
         el.addEventListener('click', function () {
@@ -1388,26 +1472,33 @@
         });
       });
     };
-    if (!datei.sicherungen) { seite('<p class="leise">Wähle die Datei mit deinem Lernstand.</p>'); return; }
-    seite('<p class="leise">Sicherungen werden gesucht …</p>');
-    datei.sicherungen().then(function (r) {
-      if (aktuelleRoute().name !== 'import') return;
-      var liste = (r && r.liste) || [], ort = esc((r && r.ort) || 'Download/PMP-Lernpartner');
-      if (r && r.moeglich === false) { seite('<p class="leise">Auf diesem Handy (vor Android 10) geht der Import nur über die Dateiauswahl von Android.</p>'); return; }
-      if (!liste.length) {
-        seite('<section class="karte"><span class="ueber">Deine Sicherungen</span><p class="leise">Noch keine Sicherung im Ordner ' + ort + ' gefunden. Mit „Exportieren“ legst du eine an. ' +
-          'Dateien aus der Lern-App im Browser, aus Drive oder von vor einer Neuinstallation findest du über „Andere Datei wählen …“.</p></section>');
-        return;
-      }
-      seite('<section class="karte"><span class="ueber">Deine Sicherungen</span><p class="leise">Aus dem Ordner ' + ort + '. Antippen übernimmt den Lernstand – vorher kommt eine Rückfrage.</p>' +
-        '<div class="sicherungen">' + liste.map(function (e) {
-          return '<button class="sicherung" data-sicherung="' + esc(e.id) + '"><span class="name">' + esc(e.name) + '</span>' +
-            '<span class="leise">' + esc(datumZeit(e.geaendert)) + ' · ' + esc(groesse(e.groesse || 0)) + '</span></button>';
-        }).join('') + '</div></section>');
-    }, function (err) {
-      if (aktuelleRoute().name !== 'import') return;
-      seite('<p class="meldung fehler">Sicherungen lassen sich nicht lesen: ' + esc((err && err.message) || err) + '</p>');
-    });
+    var karte = function (text, listeHtml) {
+      return '<section class="karte"><span class="ueber">Deine Sicherungen</span><p class="leise">' + text + '</p>' + (listeHtml || '') + '</section>';
+    };
+    var laden = function () {
+      seite(karte('Sicherungen werden gesucht …'));
+      holeSicherungen(datei).then(function (r) {
+        if (aktuelleRoute().name !== 'import') return;
+        if (r && r.hinweis) meldung = '<p class="meldung">' + esc(r.hinweis) + '</p>';
+        var liste = ((r && r.liste) || []).slice().sort(function (a, b) { return (b.geaendert || 0) - (a.geaendert || 0); });
+        moeglich = !(r && r.moeglich === false) || !!gewaehlterOrdner();
+        if (!moeglich) { seite(karte('Auf diesem Handy (vor Android 10) geht der Import ohne gewählten Ordner nur über „Andere Datei wählen …“.')); return; }
+        if (!liste.length) {
+          seite(karte('Noch keine Sicherung an diesem Speicherort. Mit „Exportieren“ legst du eine an. ' +
+            'Dateien aus der Lern-App im Browser, aus Drive oder von vor einer Neuinstallation findest du über „Andere Datei wählen …“.'));
+          return;
+        }
+        seite(karte('Antippen übernimmt den Lernstand – vorher kommt eine Rückfrage.',
+          '<div class="sicherungen">' + liste.map(function (e) {
+            return '<button class="sicherung" data-sicherung="' + esc(e.id) + '"><span class="name">' + esc(e.name) + '</span>' +
+              '<span class="leise">' + esc(datumZeit(e.geaendert)) + ' · ' + esc(groesse(e.groesse || 0)) + '</span></button>';
+          }).join('') + '</div>'));
+      }, function (err) {
+        if (aktuelleRoute().name !== 'import') return;
+        seite(karte('Sicherungen lassen sich nicht lesen: ' + esc((err && err.message) || err)));
+      });
+    };
+    laden();
   }
 
   /* ---------- Datenschutzerklärung (seit Lern-App 1.5.0, nach dem Vorbild von Saschas Homepage) ---------- */
@@ -1419,7 +1510,7 @@
       '<h1 class="gross">Datenschutzerklärung</h1>' +
       '<h2>1. Verantwortlicher</h2><p>Sascha Martin<br>E-Mail: <a href="mailto:Faceman33@web.de">Faceman33@web.de</a></p>' +
       '<h2>2. Dein Lernstand bleibt auf deinem Gerät</h2>' +
-      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst: in der Android-App im Ordner „Download/PMP-Lernpartner“ deines Handys, im Browser dort, wo dein Browser Downloads ablegt. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
+      '<p>Deine Antworten, Zeitpunkte, die Fehlerliste, das aktive Fragenset, das Farbschema und die Erinnerungszeiten speichert der PMP-Lernpartner nur im Speicher deines Geräts – im Browser bzw. in der Android-App. Sie werden weder an mich noch an Dritte übertragen. Eine Datei entsteht nur, wenn du selbst „Exportieren“ wählst: in der Android-App im Ordner „Download/PMP-Lernpartner“ deines Handys oder in einem Ordner, den du selbst auswählst, im Browser dort, wo dein Browser Downloads ablegt. Löschst du die Browserdaten oder deinstallierst du die Android-App, ist der Lernstand gelöscht.</p>' +
       '<h2>3. Hosting bei GitHub</h2>' +
       '<p>Die Lern-App im Browser wird bei ' + ext('https://pages.github.com/', 'GitHub Pages') + ' bereitgestellt, die Android-App wird über GitHub zum Herunterladen angeboten (GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA; im EU-Raum vertreten durch GitHub B.V.). Beim Abruf verarbeitet GitHub technisch notwendige Daten, insbesondere die IP-Adresse, Datum und Uhrzeit, die angeforderte Datei und den verwendeten Browser (Server-Logfiles). Weitere Informationen: ' +
       ext('https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement', 'Datenschutzerklärung von GitHub') + '.</p>' +
@@ -1432,7 +1523,7 @@
       '<p>Die Android-App fragt höchstens alle sechs Stunden und wenn du „Nach Updates suchen“ wählst bei GitHub (api.github.com) die Nummer der neuesten Version ab. Dabei werden keine Daten über dich oder deinen Lernstand gesendet; GitHub erhält wie bei jedem Abruf deine IP-Adresse (siehe Abschnitt 3). Eine neue Version lädst du selbst über den Browser herunter.</p>' +
       '<h2>6. Erinnerungen und Berechtigungen (nur Android-App)</h2>' +
       '<p>Die drei täglichen Erinnerungen plant dein Handy selbst als lokale Benachrichtigungen. Es gibt keinen Push-Dienst und keinen Server, der dir Nachrichten schickt.</p>' +
-      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera oder Mikrofon greift sie nicht zu. Dateien schreibt sie nur, wenn du „Exportieren“ wählst, und zwar in den Ordner „Download/PMP-Lernpartner“; beim Importieren zeigt sie nur die Sicherungen, die sie dort selbst angelegt hat, oder die Datei, die du in der Dateiauswahl von Android auswählst. Eine Speicher-Berechtigung braucht sie dafür nicht.</p>' +
+      '<p>Die Android-App nutzt folgende Berechtigungen: Internet (Fragenbank laden, nach neuen Versionen suchen), Benachrichtigungen anzeigen, nach einem Neustart des Handys die Erinnerungen wieder einplanen sowie – als Teil des Benachrichtigungs-Moduls – Wecker und kurzes Aktivhalten des Geräts. Auf Kontakte, Standort, Kamera oder Mikrofon greift sie nicht zu. Dateien schreibt sie nur, wenn du „Exportieren“ wählst, und zwar in den Ordner „Download/PMP-Lernpartner“ oder in einen Ordner, den du in der Ordnerauswahl von Android freigibst; beim Importieren liest sie nur die Sicherungen an diesem Speicherort oder die Datei, die du in der Dateiauswahl von Android auswählst. Eine allgemeine Speicher-Berechtigung braucht sie dafür nicht; mit „Standardordner verwenden“ nutzt sie den gewählten Ordner nicht mehr.</p>' +
       '<h2>7. Keine Cookies, kein Tracking</h2>' +
       '<p>Der PMP-Lernpartner setzt keine Cookies und verwendet keine Analyse- oder Werbedienste. Schriften und Programmcode kommen vom eigenen Server bzw. aus der Android-App selbst. Damit die Lern-App im Browser auch offline läuft, legt der Browser ihre Dateien und den zuletzt geladenen Stand der Fragenbank in seinem Speicher auf deinem Gerät ab.</p>' +
       '<h2>8. Externe Links</h2>' +
@@ -1490,6 +1581,7 @@
     }
     if (r.name === 'einstellungen') { var m = ui.meldung; ui.meldung = null; return zeigeEinstellungen(m); }
     if (r.name === 'import') return zeigeImport();
+    if (r.name === 'export') return zeigeExport();
     if (r.name === 'datenschutz') return zeigeDatenschutz();
     return zeigeStart();
   }

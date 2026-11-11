@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import androidx.activity.result.ActivityResult;
@@ -30,6 +31,10 @@ import java.nio.charset.StandardCharsets;
  * Download/PMP-Lernpartner über MediaStore – ohne Dialog und ohne Berechtigungen. Android zeigt
  * der App dabei nur die Dateien, die sie selbst angelegt hat.
  *
+ * Seit Lern-App 1.7.0: ordnerWaehlen() lässt Sascha einen anderen Ordner wählen (ACTION_OPEN_DOCUMENT_TREE,
+ * dauerhafte Freigabe). sichern / sicherungen nehmen dann { ordner: <Adresse> } und arbeiten in diesem Ordner;
+ * lesen erkennt solche Dateien an ihrer content://-Adresse.
+ *
  * Rückfall und "Andere Datei wählen…": speichern / oeffnen über die Dateiauswahl von Android
  * (Storage Access Framework, ACTION_CREATE_DOCUMENT und ACTION_OPEN_DOCUMENT).
  */
@@ -50,6 +55,12 @@ public class DateiPlugin extends Plugin {
         String inhalt = call.getString("inhalt");
         if (inhalt == null) {
             call.reject("Kein Inhalt zum Speichern.");
+            return;
+        }
+        String ordner = call.getString("ordner");
+        if (ordner != null && !ordner.isEmpty()) {
+            sichernInOrdner(call, Uri.parse(ordner), call.getString("name", "pmp-lernstand.json"),
+                inhalt.getBytes(StandardCharsets.UTF_8), call.getString("mime", "application/json"));
             return;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -100,6 +111,11 @@ public class DateiPlugin extends Plugin {
     /** sicherungen() → { moeglich, ort, liste: [{ id, name, groesse, geaendert }] } – neueste zuerst */
     @PluginMethod
     public void sicherungen(PluginCall call) {
+        String ordner = call.getString("ordner");
+        if (ordner != null && !ordner.isEmpty()) {
+            sicherungenInOrdner(call, Uri.parse(ordner));
+            return;
+        }
         JSObject ret = new JSObject();
         ret.put("ort", ORDNER_ANZEIGE);
         JSArray liste = new JSArray();
@@ -138,6 +154,20 @@ public class DateiPlugin extends Plugin {
     @PluginMethod
     public void lesen(PluginCall call) {
         String id = call.getString("id");
+        if (id != null && id.startsWith("content://")) {
+            try {
+                Uri uri = Uri.parse(id);
+                JSObject ret = new JSObject();
+                ret.put("name", anzeigeName(uri));
+                ret.put("inhalt", liesText(uri));
+                call.resolve(ret);
+            } catch (SecurityException e) {
+                call.reject("Kein Zugriff mehr auf den Ordner.", "KEIN_ZUGRIFF", e);
+            } catch (Exception e) {
+                call.reject("Öffnen fehlgeschlagen: " + e.getMessage(), e);
+            }
+            return;
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             call.reject("Direktes Lesen gibt es erst ab Android 10.", "NICHT_MOEGLICH");
             return;
@@ -155,6 +185,114 @@ public class DateiPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Öffnen fehlgeschlagen: " + e.getMessage(), e);
         }
+    }
+
+    /** ordnerWaehlen() → { ordner, name } · Abbruch: reject mit Code ABGEBROCHEN */
+    @PluginMethod
+    public void ordnerWaehlen(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, intent, "ordnerErgebnis");
+    }
+
+    @ActivityCallback
+    private void ordnerErgebnis(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Uri baum = gewaehlt(result);
+        if (baum == null) {
+            call.reject("Abgebrochen", "ABGEBROCHEN");
+            return;
+        }
+        try {
+            // Freigabe dauerhaft behalten, damit der Ordner auch nach einem Neustart der App gilt.
+            getContext().getContentResolver().takePersistableUriPermission(baum,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            JSObject ret = new JSObject();
+            ret.put("ordner", baum.toString());
+            ret.put("name", ordnerName(baum));
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Ordner lässt sich nicht verwenden: " + e.getMessage(), e);
+        }
+    }
+
+    private void sichernInOrdner(PluginCall call, Uri baum, String name, byte[] daten, String mime) {
+        ContentResolver cr = getContext().getContentResolver();
+        try {
+            String wurzel = DocumentsContract.getTreeDocumentId(baum);
+            Uri ziel = null;
+            // Gleicher Name: vorhandene Datei überschreiben
+            try (Cursor c = cr.query(DocumentsContract.buildChildDocumentsUriUsingTree(baum, wurzel),
+                    new String[] { DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME },
+                    null, null, null)) {
+                while (c != null && c.moveToNext()) {
+                    if (name.equals(c.getString(1))) { ziel = DocumentsContract.buildDocumentUriUsingTree(baum, c.getString(0)); break; }
+                }
+            }
+            if (ziel == null) {
+                ziel = DocumentsContract.createDocument(cr, DocumentsContract.buildDocumentUriUsingTree(baum, wurzel), mime, name);
+                if (ziel == null) throw new Exception("Datei lässt sich nicht anlegen.");
+            }
+            schreibe(ziel, daten);
+            JSObject ret = new JSObject();
+            ret.put("name", anzeigeName(ziel));
+            ret.put("ort", ordnerName(baum));
+            call.resolve(ret);
+        } catch (SecurityException e) {
+            call.reject("Kein Zugriff mehr auf den Ordner. Bitte den Ordner neu wählen.", "KEIN_ZUGRIFF", e);
+        } catch (Exception e) {
+            call.reject("Speichern fehlgeschlagen: " + e.getMessage(), e);
+        }
+    }
+
+    private void sicherungenInOrdner(PluginCall call, Uri baum) {
+        JSObject ret = new JSObject();
+        JSArray liste = new JSArray();
+        try {
+            String wurzel = DocumentsContract.getTreeDocumentId(baum);
+            String[] spalten = new String[] {
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED
+            };
+            try (Cursor c = getContext().getContentResolver().query(
+                    DocumentsContract.buildChildDocumentsUriUsingTree(baum, wurzel), spalten, null, null, null)) {
+                while (c != null && c.moveToNext()) {
+                    String name = c.getString(1);
+                    if (name == null || !name.toLowerCase().endsWith(".json")) continue;
+                    JSObject e = new JSObject();
+                    e.put("id", DocumentsContract.buildDocumentUriUsingTree(baum, c.getString(0)).toString());
+                    e.put("name", name);
+                    e.put("groesse", c.getLong(2));
+                    e.put("geaendert", c.getLong(3));
+                    liste.put(e);
+                }
+            }
+            ret.put("moeglich", true);
+            ret.put("ort", ordnerName(baum));
+            ret.put("liste", liste);
+            call.resolve(ret);
+        } catch (SecurityException e) {
+            call.reject("Kein Zugriff mehr auf den Ordner. Bitte den Ordner neu wählen.", "KEIN_ZUGRIFF", e);
+        } catch (Exception e) {
+            call.reject("Sicherungen lassen sich nicht lesen: " + e.getMessage(), e);
+        }
+    }
+
+    /** Lesbarer Name eines gewählten Ordners, z. B. "Documents/Sicherungen" (interner Speicher) oder der Anzeigename. */
+    private String ordnerName(Uri baum) {
+        try {
+            String id = DocumentsContract.getTreeDocumentId(baum);
+            if ("com.android.externalstorage.documents".equals(baum.getAuthority()) && id != null && id.contains(":")) {
+                String pfad = id.substring(id.indexOf(':') + 1);
+                return pfad.isEmpty() ? "Interner Speicher" : pfad;
+            }
+            String name = anzeigeName(DocumentsContract.buildDocumentUriUsingTree(baum, id));
+            if (name != null) return name;
+        } catch (Exception ignored) {
+            // nur für die Anzeige
+        }
+        return "gewählter Ordner";
     }
 
     /** speichern({ name, inhalt, mime }) → { name } · Abbruch: reject mit Code ABGEBROCHEN */
