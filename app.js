@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.9.1, 12.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.10.0, 12.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,14 +9,14 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.9.1';
+  var APP_VERSION = '1.10.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
    * { art: 'sheet', url: '…/exec', schluessel: '…', name: '…' } oder { art: 'datei', name: '…' } */
   var QUELLE_SPEICHER = 'pmplp.quelle';
   var PFLICHT = ['id', 'frage', 'a', 'b', 'c', 'd', 'loesung'];
-  var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd',
+  var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd', 'e', 'begriffe',
     'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz'];
   var TAG_MS = 86400000;
   var ECO_ZIEL = { I: 0.33, II: 0.41, III: 0.26 };
@@ -297,6 +297,49 @@
     return zeilen;
   }
 
+  /* Fragetypen (seit Lern-App 1.10.0):
+   *   einfach   – eine Lösung A–E (Spalte e wahlweise)
+   *   mehrfach  – mehrere Buchstaben, z. B. „A, C, E“; gewertet nach „alles oder nichts“
+   *   zuordnung – Paare „A=Avoid, B=Accept, …“; die Begriffe stehen in Spalte begriffe, mit | getrennt
+   * Normalisiert q.loesung, setzt q.typ und q.optionen. Gibt false zurück, wenn die Lösung nicht passt. */
+  var BUCHSTABEN = ['A', 'B', 'C', 'D', 'E'];
+  function pruefeLoesung(q) {
+    q.optionen = BUCHSTABEN.filter(function (b) { return String(q[b.toLowerCase()] || '') !== ''; });
+    if (['A', 'B', 'C', 'D'].some(function (b) { return q.optionen.indexOf(b) < 0; })) return false;
+    var roh = String(q.loesung || '').trim();
+    if (roh.indexOf('=') >= 0) {
+      var begriffe = String(q.begriffe || '').split('|').map(function (t) { return t.trim(); }).filter(Boolean);
+      if (begriffe.length < 2) return false;
+      var paare = {}, gut = true;
+      roh.split(/\s*[,;]\s*/).forEach(function (teil) {
+        var m = teil.match(/^([A-Ea-e])\s*=\s*(.+)$/);
+        if (!m) { gut = false; return; }
+        var b = m[1].toUpperCase();
+        var treffer = begriffe.filter(function (t) { return t.toLowerCase() === m[2].trim().toLowerCase(); })[0];
+        if (q.optionen.indexOf(b) < 0 || !treffer || paare[b]) { gut = false; return; }
+        paare[b] = treffer;
+      });
+      if (!gut || q.optionen.some(function (b) { return !paare[b]; })) return false;
+      q.typ = 'zuordnung'; q.begriffListe = begriffe; q.paare = paare;
+      q.loesung = zuordnungText(paare, q.optionen);
+      return true;
+    }
+    var teile = roh.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+    if (!teile.length || teile.some(function (b) { return q.optionen.indexOf(b) < 0; })) return false;
+    teile = teile.filter(function (b, i) { return teile.indexOf(b) === i; }).sort();
+    q.typ = teile.length > 1 ? 'mehrfach' : 'einfach';
+    q.loesung = teile.join(', ');
+    return true;
+  }
+  function zuordnungText(paare, optionen) {
+    return optionen.filter(function (b) { return paare[b]; }).map(function (b) { return b + '=' + paare[b]; }).join(', ');
+  }
+  function leseZuordnung(text) {
+    var m = {};
+    String(text || '').split(/\s*,\s*/).forEach(function (t) { var x = t.match(/^([A-E])=(.+)$/); if (x) m[x[1]] = x[2]; });
+    return m;
+  }
+
   /* Prüft und übernimmt eine Fragenbank als CSV-Text. Pflichtspalten: id, frage, a–d, loesung.
    * Alle übrigen Spalten sind wahlweise; fehlt "aktiv", gelten alle Fragen als aktiv.
    * Wirft einen Fehler, ohne die bisher geladenen Fragen anzutasten. */
@@ -317,8 +360,7 @@
       if (!q.id || !q.frage) continue;
       if (mitAktiv && q.aktiv.toLowerCase() !== 'ja') continue;
       if (!q.paket) q.paket = q.id.indexOf('-') > 0 ? q.id.split('-')[0] : 'P01';
-      q.loesung = q.loesung.toUpperCase();
-      if (!/^[ABCD]$/.test(q.loesung)) continue;
+      if (!pruefeLoesung(q)) continue;
       liste.push(q);
     }
     if (!liste.length) throw new Error('Keine aktiven Fragen gefunden');
@@ -632,6 +674,66 @@
     bindeUpdate();
   }
 
+  /* Fragetext: Absätze bleiben erhalten; Zeilen, die mit | beginnen, werden als Tabelle gezeigt (seit 1.10.0).
+   * Die erste Tabellenzeile ist die Kopfzeile; Trennzeilen wie |---|---| werden übersprungen. */
+  function fragetextHtml(text) {
+    var html = '', puffer = [], tab = [];
+    function textRaus() {
+      while (puffer.length && !puffer[0].trim()) puffer.shift();
+      while (puffer.length && !puffer[puffer.length - 1].trim()) puffer.pop();
+      if (puffer.length) html += '<span class="absatz">' + esc(puffer.join('\n')) + '</span>';
+      puffer = [];
+    }
+    function tabRaus() {
+      if (!tab.length) return;
+      html += '<div class="tabellenrahmen"><table class="fragetabelle">' + tab.map(function (z, i) {
+        var zellen = z.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+        var t = i === 0 ? 'th' : 'td';
+        return '<tr>' + zellen.map(function (c) { return '<' + t + '>' + esc(c) + '</' + t + '>'; }).join('') + '</tr>';
+      }).join('') + '</table></div>';
+      tab = [];
+    }
+    String(text || '').split(/\r?\n/).forEach(function (z) {
+      if (/^\s*\|/.test(z)) {
+        textRaus();
+        if (!/^\s*\|[\s\-:|]+$/.test(z)) tab.push(z);
+      } else { tabRaus(); puffer.push(z); }
+    });
+    textRaus(); tabRaus();
+    return html;
+  }
+
+  /* Kurzfassung für Listen: bei Fallstudien nur die eigentliche Frage, ohne Tabellenzeilen. */
+  function listenText(text) {
+    var t = String(text || '');
+    var i = t.lastIndexOf('Question: ');
+    if (i >= 0) t = t.slice(i + 10);
+    return t.split(/\r?\n/).filter(function (z) { return !/^\s*\|/.test(z) && z.trim(); }).join(' ');
+  }
+
+  function antwortBereich(q) {
+    var knopf = function (b, attr) {
+      return '<button class="option" ' + attr + '="' + b + '"' + (attr === 'data-wahl' ? '' : ' aria-pressed="false"') +
+        '><span class="buchstabe">' + b + '</span><span class="text">' + esc(q[b.toLowerCase()]) + '</span></button>';
+    };
+    var pruefen = '<p class="eingabefehler" role="alert" lang="de"></p><button class="knopf" data-aktion="pruefen" lang="de">Antwort prüfen</button>';
+    if (q.typ === 'mehrfach') {
+      var n = q.loesung.split(', ').length;
+      return '<p class="auftrag" lang="de">Wähle ' + n + ' Antworten.</p><div class="optionen" lang="en" role="group" aria-label="Antworten">' +
+        q.optionen.map(function (b) { return knopf(b, 'data-mehr'); }).join('') + '</div>' + pruefen;
+    }
+    if (q.typ === 'zuordnung') {
+      return '<p class="auftrag" lang="de">Ordne jedem Szenario einen Begriff zu.</p><div class="optionen" lang="en">' +
+        q.optionen.map(function (b) {
+          return '<div class="zuordnung"><div class="szenario"><span class="buchstabe">' + b + '</span><span class="text">' + esc(q[b.toLowerCase()]) + '</span></div>' +
+            '<div class="begriffe" role="group" aria-label="Begriff für ' + b + '">' + q.begriffListe.map(function (t) {
+              return '<button class="begriff" data-zu="' + b + '" data-begriff="' + esc(t) + '" aria-pressed="false">' + esc(t) + '</button>';
+            }).join('') + '</div></div>';
+        }).join('') + '</div>' + pruefen;
+    }
+    return '<div class="optionen" lang="en" role="group" aria-label="Antworten">' + q.optionen.map(function (b) { return knopf(b, 'data-wahl'); }).join('') + '</div>';
+  }
+
   function einordnung(q) {
     var chip = function (t, v) { return '<div class="chip"><span>' + t + '</span><span>' + esc(v) + '</span></div>'; };
     var html = (q.domain ? chip('Domain', q.domain) : '') + (q.focus_area ? chip('Focus Area', q.focus_area) : '') + (q.prozess ? chip('Prozess', q.prozess) : '');
@@ -657,29 +759,109 @@
     }
     app.innerHTML = '<main class="seite"><div class="kopf">' + zurueck + '<span class="leise">Heute · Frage ' + zaehler + '</span></div>' +
       hinweisDurch + einordnung(q) +
-      '<p class="fragetext" lang="en">' + esc(q.frage) + '</p>' +
-      '<div class="optionen" lang="en" role="group" aria-label="Antworten">' +
-      ['A', 'B', 'C', 'D'].map(function (b) {
-        return '<button class="option" data-wahl="' + b + '"><span class="buchstabe">' + b + '</span><span class="text">' + esc(q[b.toLowerCase()]) + '</span></button>';
-      }).join('') + '</div><p class="leise" style="text-align:right">' + esc(q.id) + ' · ' + esc(setName(q.paket)) + '</p></main>';
+      '<div class="fragetext" lang="en">' + fragetextHtml(q.frage) + '</div>' + antwortBereich(q) +
+      '<p class="leise" style="text-align:right">' + esc(q.id) + ' · ' + esc(setName(q.paket)) + '</p></main>';
+    var abgeben = function (wahl) {
+      sitzung.antwort = antworte(q, wahl);
+      sitzung.phase = 'feedback';
+      render();
+      planeErinnerungen(false); // Erinnerung nennt jetzt die nächste Frage
+      window.scrollTo(0, 0);
+    };
     app.querySelectorAll('[data-wahl]').forEach(function (el) {
+      el.addEventListener('click', function () { abgeben(el.getAttribute('data-wahl')); });
+    });
+    var fehlerZeile = app.querySelector('.eingabefehler');
+    var zeigeFehler = function (t) { if (fehlerZeile) fehlerZeile.textContent = t; };
+    app.querySelectorAll('[data-mehr]').forEach(function (el) {
       el.addEventListener('click', function () {
-        sitzung.antwort = antworte(q, el.getAttribute('data-wahl'));
-        sitzung.phase = 'feedback';
-        render();
-        planeErinnerungen(false); // Erinnerung nennt jetzt die nächste Frage
-        window.scrollTo(0, 0);
+        el.setAttribute('aria-pressed', el.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+        zeigeFehler('');
       });
+    });
+    app.querySelectorAll('[data-zu]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var b = el.getAttribute('data-zu');
+        app.querySelectorAll('[data-zu="' + b + '"]').forEach(function (x) { x.setAttribute('aria-pressed', x === el ? 'true' : 'false'); });
+        zeigeFehler('');
+      });
+    });
+    var pruefKnopf = app.querySelector('[data-aktion="pruefen"]');
+    if (pruefKnopf) pruefKnopf.addEventListener('click', function () {
+      if (q.typ === 'mehrfach') {
+        var n = q.loesung.split(', ').length;
+        var gew = [].slice.call(app.querySelectorAll('[data-mehr][aria-pressed="true"]')).map(function (x) { return x.getAttribute('data-mehr'); }).sort();
+        if (gew.length !== n) { zeigeFehler('Wähle genau ' + n + ' Antworten (gewählt: ' + gew.length + ').'); return; }
+        abgeben(gew.join(', '));
+      } else {
+        var paare = {};
+        [].slice.call(app.querySelectorAll('[data-zu][aria-pressed="true"]')).forEach(function (x) { paare[x.getAttribute('data-zu')] = x.getAttribute('data-begriff'); });
+        var offen = q.optionen.filter(function (b) { return !paare[b]; });
+        if (offen.length) { zeigeFehler('Ordne jedem Szenario einen Begriff zu (offen: ' + offen.join(', ') + ').'); return; }
+        abgeben(zuordnungText(paare, q.optionen));
+      }
     });
   }
 
   function warumNicht(q, wahl) {
-    var teile = String(q.warum_nicht || '').split(/\s*·\s*(?=[A-D]:)/);
+    var teile = String(q.warum_nicht || '').split(/\s*·\s*(?=[A-E]:)/);
     for (var i = 0; i < teile.length; i++) {
-      var m = teile[i].match(/^([A-D]):\s*([\s\S]*)$/);
+      var m = teile[i].match(/^([A-E]):\s*([\s\S]*)$/);
       if (m && m[1] === wahl) return m[2].trim();
     }
     return '';
+  }
+
+  function referenzHtml(q) {
+    var refs = String(q.referenz || '').split(/\s+·\s+/).filter(Boolean);
+    return (refs.length ? '<section class="block ref"><h2>Referenz</h2>' + refs.map(function (r) {
+      var m = r.match(/^(PMBOK 8|ECO):\s*(.*)$/) || r.match(/^(PMBOK 8|ECO)\s+(.*)$/);
+      return m ? '<p><strong>' + esc(m[1]) + ':</strong> ' + esc(m[2]) + '</p>' : '<p>' + esc(r) + '</p>';
+    }).join('') + '</section>' : '') +
+      (q.merksatz ? '<section class="block merksatz">' + IKON.lampe + '<div><h2>Merksatz</h2><p>' + esc(q.merksatz) + '</p></div></section>' : '');
+  }
+
+  /* Rückmeldung für Mehrfachauswahl und Zuordnung (seit 1.10.0). */
+  function feedbackErweitert(q, a, vorher) {
+    var ok = a.ok, h = '';
+    var kopf = function (titel, klein) {
+      return '<div class="ergebnis ' + (ok ? 'ok' : 'bad') + '"><div class="kreis">' + (ok ? IKON.ok : IKON.x) + '</div><div><strong>' + esc(titel) + '</strong><small>' + esc(klein) + '</small></div></div>';
+    };
+    var zeile = function (b, klasse, inhalt) {
+      return '<div class="option ' + klasse + '"><span class="buchstabe">' + b + '</span><span class="text">' + esc(q[b.toLowerCase()]) + inhalt + '</span></div>';
+    };
+    if (q.typ === 'mehrfach') {
+      var soll = q.loesung.split(', '), ist = String(a.wahl || '').split(', ');
+      h += kopf(ok ? 'Richtig' : 'Falsch – richtig ist ' + q.loesung, 'Deine Antwort: ' + (a.wahl || '–')) + vorher;
+      h += '<div class="optionen" lang="en">' + q.optionen.map(function (b) {
+        var s = soll.indexOf(b) >= 0, w = ist.indexOf(b) >= 0;
+        var marker = s && w ? '<span class="marker ok" lang="de">Richtig</span>' : s ? '<span class="marker ok" lang="de">Fehlte</span>' : w ? '<span class="marker bad" lang="de">Deine Wahl</span>' : '';
+        return zeile(b, s ? 'richtig' : w ? 'falsch' : 'still', marker ? '<span class="zuordnung-ergebnis">' + marker + '</span>' : '');
+      }).join('') + '</div>';
+      ist.filter(function (b) { return b && soll.indexOf(b) < 0; }).forEach(function (b) {
+        var wn = warumNicht(q, b);
+        if (wn) h += '<section class="block"><h2 class="bad">Warum nicht ' + b + '</h2><p>' + esc(wn) + '</p></section>';
+      });
+      h += '<section class="block"><h2 class="ok">Warum ' + esc(q.loesung) + '</h2><p>' + esc(q.warum) + '</p></section>';
+    } else {
+      var gew = leseZuordnung(a.wahl);
+      var richtig = q.optionen.filter(function (b) { return gew[b] === q.paare[b]; }).length;
+      h += kopf(ok ? 'Richtig' : 'Falsch', richtig + ' von ' + q.optionen.length + ' Zuordnungen richtig') + vorher;
+      h += '<div class="optionen" lang="en">' + q.optionen.map(function (b) {
+        var r = gew[b] === q.paare[b];
+        return zeile(b, r ? 'richtig' : 'falsch', '<span class="zuordnung-ergebnis">' + (r
+          ? '<span class="marker ok">' + esc(q.paare[b]) + '</span>'
+          : '<span class="marker bad"><span lang="de">Deine Wahl: </span>' + esc(gew[b] || '–') + '</span><span class="marker ok"><span lang="de">Richtig: </span>' + esc(q.paare[b]) + '</span>') + '</span>');
+      }).join('') + '</div>';
+      h += '<section class="block"><h2 class="ok">Warum so</h2><p>' + esc(q.warum) + '</p></section>';
+      if (!ok && q.warum_nicht) h += '<section class="block"><h2 class="bad">Merkhilfe</h2><p>' + esc(q.warum_nicht) + '</p></section>';
+    }
+    if (ok) {
+      if (S.fehler[q.id]) h += '<p class="notiz">' + IKON.wieder + 'Noch einmal richtig, dann verlässt sie die Fehlerliste.</p>';
+    } else {
+      h += referenzHtml(q) + '<p class="notiz">' + IKON.wieder + 'Kommt auf die Fehlerliste – frühestens morgen wieder.</p>';
+    }
+    return h;
   }
 
   function zeigeFeedback(q) {
@@ -690,7 +872,9 @@
         (marker ? '<span class="marker ' + mk + '" lang="de">' + marker + '</span>' : '') + '</div>';
     };
     var html = '<main class="seite"><div class="kopf"><span></span><span class="leise">Heute · Frage ' + heuteBeantwortet() + '</span></div>' + einordnung(q);
-    if (ok) {
+    if (q.typ === 'mehrfach' || q.typ === 'zuordnung') {
+      html += feedbackErweitert(q, a, vorher);
+    } else if (ok) {
       html += '<div class="ergebnis ok"><div class="kreis">' + IKON.ok + '</div><div><strong>Richtig</strong><small>Deine Antwort: ' + l + '</small></div></div>' + vorher +
         '<div class="optionen" lang="en">' + opt(l, 'richtig', 'Richtig', 'ok') + '</div>' +
         '<section class="block"><h2 class="ok">Warum ' + l + '</h2><p>' + esc(q.warum) + '</p></section>';
@@ -863,7 +1047,7 @@
     gefiltert.forEach(function (q) {
       var s = status(q);
       var sym = s === 'richtig' ? '<span class="status ok" aria-label="zuletzt richtig">✓</span>' : s === 'falsch' ? '<span class="status bad" aria-label="zuletzt falsch">✗</span>' : '<span class="status" aria-label="offen">•</span>';
-      html += '<a class="eintrag" href="#/f/' + esc(q.id) + '">' + sym + '<span class="mitte"><span>' + esc(q.id) + ' · ' + esc(q.domain) + ' · ' + esc(q.prozess) + '</span><span lang="en">' + esc(q.frage) + '</span></span></a>';
+      html += '<a class="eintrag" href="#/f/' + esc(q.id) + '">' + sym + '<span class="mitte"><span>' + esc(q.id) + ' · ' + esc(q.domain) + ' · ' + esc(q.prozess) + '</span><span lang="en">' + esc(listenText(q.frage)) + '</span></span></a>';
     });
     if (!gefiltert.length) html += '<p class="meldung">Keine Fragen in dieser Auswahl.</p>';
     app.innerHTML = html + '</div></main>';
@@ -916,7 +1100,7 @@
     html += '<div class="liste">' + fehlerIds.map(function (id) {
       var f = S.fehler[id], fq = nachId[id];
       var wann = istFaellig(id, jetzt) ? 'fällig' : (tagSchluessel(f.t) === tagSchluessel(jetzt) ? 'ab morgen' : 'nach ' + Math.max(0, 10 - (S.zaehler - f.n)) + ' weiteren Fragen');
-      return '<a class="eintrag" href="#/f/' + esc(id) + '"><span class="status bad">✗</span><span class="mitte"><span>' + esc(id) + ' · ' + esc(fq.domain) + ' · ' + wann + '</span><span lang="en">' + esc(fq.frage) + '</span></span></a>';
+      return '<a class="eintrag" href="#/f/' + esc(id) + '"><span class="status bad">✗</span><span class="mitte"><span>' + esc(id) + ' · ' + esc(fq.domain) + ' · ' + wann + '</span><span lang="en">' + esc(listenText(fq.frage)) + '</span></span></a>';
     }).join('') + '</div></section></main>' + nav('statistik');
     app.innerHTML = html;
     app.querySelectorAll('[data-modus]').forEach(function (el) {
@@ -1723,9 +1907,11 @@
       '<p class="leise">Die erste Zeile enthält die Spaltenköpfe (klein geschrieben). Die Reihenfolge ist egal.</p>' +
       '<table class="hilfe-tabelle"><thead><tr><th>Spalte</th><th>Inhalt</th></tr></thead><tbody>' +
       [['id', 'Pflicht. Eindeutig und dauerhaft, z. B. P01-001. Nie ändern – der Lernstand hängt daran.'],
-       ['frage', 'Pflicht. Fragetext.'],
+       ['frage', 'Pflicht. Fragetext. Zeilen, die mit | beginnen, erscheinen als Tabelle (erste Zeile = Kopfzeile).'],
        ['a, b, c, d', 'Pflicht. Die vier Antworten.'],
-       ['loesung', 'Pflicht. Buchstabe der richtigen Antwort: A, B, C oder D.'],
+       ['e', 'Wahlweise. Fünfte Antwort.'],
+       ['loesung', 'Pflicht. Buchstabe der richtigen Antwort (A–E). Mehrfachauswahl: mehrere Buchstaben, z. B. „A, C, E“ – gewertet wird nur ganz richtig. Zuordnung: Paare wie „A=Avoid, B=Accept, …“.'],
+       ['begriffe', 'Nur für Zuordnungen. Die Begriffe, mit | getrennt, z. B. Avoid|Mitigate|Transfer|Accept. Die Szenarien stehen in a–d (e).'],
        ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
        ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“, ME1 = „Mock Exam 1“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
        ['domain, focus_area, prozess', 'Wahlweise. Einordnung über der Frage und Grundlage der Statistik.'],
@@ -1813,7 +1999,7 @@
       '<button class="knopf klein" data-verbinden>Verbinden</button></div>' +
       '<p class="leise">Der Code enthält deinen persönlichen Schlüssel. Er bleibt nur auf diesem Gerät und in deiner Lernstand-Sicherung. Gib ihn nicht weiter.</p></section>' +
       '<section class="karte"><span class="ueber">Lokale Datei</span>' +
-      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–D). Wahlweise: aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
+      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–E, mehrere Buchstaben oder Zuordnung). Wahlweise: e, begriffe, aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
       '<label class="knopf zweit klein" style="cursor:pointer">CSV-Datei wählen<input type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain" class="versteckt" data-csv></label></section>' +
       (Q ? '<section class="karte"><span class="ueber">Trennen</span><p class="leise">Entfernt die Verbindung und die geladenen Fragen von diesem Gerät. Dein Lernstand bleibt erhalten.</p>' +
         '<button class="knopf zweit klein" data-trennen>Trennen</button></section>' : '') +

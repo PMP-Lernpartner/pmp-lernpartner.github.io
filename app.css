@@ -101,6 +101,24 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 .chip span:first-child { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .chip span:last-child { font-size: 14px; font-weight: 600; }
 .fragetext { font-size: 18px; line-height: 1.5; font-weight: 500; white-space: pre-line; }
+.fragetext .absatz { display: block; }
+.tabellenrahmen { overflow-x: auto; margin: 10px 0; }
+.fragetabelle { border-collapse: collapse; width: 100%; font-size: 15px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: normal; }
+.fragetabelle th, .fragetabelle td { border-bottom: 1px solid var(--strong); padding: 6px 8px; text-align: right; }
+.fragetabelle th { color: var(--muted); font-size: 13px; font-weight: 600; }
+.fragetabelle th:first-child, .fragetabelle td:first-child { text-align: left; }
+.auftrag { font-size: 14px; font-weight: 600; color: var(--muted); }
+.option[aria-pressed="true"] { border: 2px solid var(--accent-text); }
+.option[aria-pressed="true"] .buchstabe { background: var(--accent); color: #fff; }
+.zuordnung { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--surface); border: 1.5px solid var(--strong); border-radius: 14px; }
+.szenario { display: flex; align-items: flex-start; gap: 12px; font-size: 15px; line-height: 1.4; }
+.szenario .text { flex: 1; padding-top: 3px; }
+.begriffe { display: flex; flex-wrap: wrap; gap: 8px; }
+.begriff { min-height: 44px; padding: 8px 14px; border-radius: 12px; border: 1.5px solid var(--strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+.begriff[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.eingabefehler { color: var(--bad-text); font-size: 14px; min-height: 0; }
+.eingabefehler:empty { display: none; }
+.zuordnung-ergebnis { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .optionen { display: flex; flex-direction: column; gap: 10px; }
 .option { display: flex; align-items: flex-start; gap: 12px; padding: 14px; min-height: 56px; width: 100%; text-align: left;
