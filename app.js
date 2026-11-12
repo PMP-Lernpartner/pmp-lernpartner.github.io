@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.9.0, 12.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.9.1, 12.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,7 +9,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.9.0';
+  var APP_VERSION = '1.9.1';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -98,7 +98,14 @@
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function prozent(ok, n) { return n ? Math.round((ok / n) * 100) : null; }
   function setNummer(key) { var n = parseInt(String(key).replace(/\D/g, ''), 10); return isNaN(n) ? key : n; }
-  function setName(key) { return key === 'alle' ? 'Alle Sets' : 'Set ' + setNummer(key); }
+  /* Pakete ME1, ME2 … sind Probeprüfungen (Mock Exam) und heißen „Mock Exam 1“ usw. (seit 1.9.1). */
+  function mockNummer(key) { var m = /^ME(\d+)$/i.exec(String(key)); return m ? parseInt(m[1], 10) : null; }
+  function setName(key) {
+    if (key === 'alle') return 'Alle Sets';
+    var me = mockNummer(key);
+    return me !== null ? 'Mock Exam ' + me : 'Set ' + setNummer(key);
+  }
+  function setRang(key) { var me = mockNummer(key); return me !== null ? 100000 + me : setNummer(key); }
   function ecoDomain(q) { return String(q.eco || '').split('-')[0].trim(); }
 
   var IKON = {
@@ -455,7 +462,7 @@
   function setKeys() {
     var m = {};
     fragen.forEach(function (q) { m[q.paket] = true; });
-    return Object.keys(m).sort(function (a, b) { return setNummer(a) - setNummer(b); });
+    return Object.keys(m).sort(function (a, b) { return setRang(a) - setRang(b); });
   }
   function fragenImSet(key) {
     return key === 'alle' ? fragen.slice() : fragen.filter(function (q) { return q.paket === key; });
@@ -1720,7 +1727,7 @@
        ['a, b, c, d', 'Pflicht. Die vier Antworten.'],
        ['loesung', 'Pflicht. Buchstabe der richtigen Antwort: A, B, C oder D.'],
        ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
-       ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
+       ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“, ME1 = „Mock Exam 1“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
        ['domain, focus_area, prozess', 'Wahlweise. Einordnung über der Frage und Grundlage der Statistik.'],
        ['warum, warum_nicht', 'Wahlweise. Erklärung der richtigen bzw. der falschen Antworten.'],
        ['referenz, merksatz', 'Wahlweise. Erscheinen bei falscher Antwort.']
