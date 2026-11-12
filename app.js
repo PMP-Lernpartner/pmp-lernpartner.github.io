@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.8.0, 11.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.9.0, 12.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,7 +9,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.8.0';
+  var APP_VERSION = '1.9.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -24,8 +24,7 @@
   var DOMAINS = ['Governance', 'Scope', 'Schedule', 'Finance', 'Stakeholders', 'Resources', 'Risk'];
   var FOCUS = ['Initiating', 'Planning', 'Executing', 'Monitoring and Controlling', 'Closing'];
   /* Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain und Focus Area.
-   * Quelle: Übersicht in Andrew Ramdayals aktuellem PMP-Buch, von Sascha als verbindlich festgelegt
-   * (Projektgrundlage Abschnitt 11, Q3, Entscheidung 23). */
+   * Eigene Darstellung nach der Struktur des PMBOK Guide 8 (Projektgrundlage Abschnitt 11). */
   var PROZESSE = {
     Governance: { Initiating: ['Initiate Project or Phase'], Planning: ['Integrate and Align Project Plans', 'Plan Sourcing Strategy'],
       Executing: ['Manage Project Execution', 'Manage Quality Assurance', 'Manage Project Knowledge'],
@@ -965,8 +964,7 @@
   }
 
   /* ---------- Earned Value (Reiter Übersicht, seit Lern-App 1.4.0) ----------
-   * Formeln und Szenario-Muster nach Andrew Ramdayals PMP-Buch (Kap. 9), von Sascha als Quelle festgelegt
-   * (Projektgrundlage, Entscheidung 26). Beispiele und Texte sind eigene. Gerechnet wird exakt (EAC = BAC × AC / EV),
+   * Gängige Earned-Value-Formeln (Projektgrundlage Abschnitt 11). Beispiele und Texte sind eigene. Gerechnet wird exakt (EAC = BAC × AC / EV),
    * angezeigt auf 2 Stellen (Entscheidung 27). In Langformen markiert [x] den Buchstaben der Abkürzung. */
   var EV_KZ = [
     { k: 'BAC', lang: '[B]udget [a]t [C]ompletion', de: 'Gesamtbudget des Projekts', formel: 'gegeben', art: 'geld', gruppe: 'basis' },
@@ -1003,7 +1001,7 @@
     ['E (Zukunft)', 'Estimate', 'Schätzung, Prognose', 'EAC, ETC'],
     ['TC', 'To Complete', 'ab heute bis zum Ende', 'ETC, TCPI'],
   ];
-  /* Vier eigene Beispiele nach den vier Mustern aus dem Buch; Zahlen so gewählt, dass EAC glatt aufgeht. */
+  /* Vier eigene Beispiele zu vier typischen Projektlagen; Zahlen so gewählt, dass EAC glatt aufgeht. */
   var EV_SZENARIEN = [
     { nr: 1, titel: 'Voraus und unter Budget', ton: 'gut', projekt: 'Website-Relaunch', einheit: 'Wochen',
       bac: 10000, zeit: 4, dauer: 10, fertig: 50, ac: 4000,
@@ -1215,7 +1213,7 @@
     return '<div class="segment ev-teile" role="group" aria-label="Earned Value">' + teile.map(function (t) {
       return '<button data-ev-teil="' + t[0] + '" aria-pressed="' + (ui.evTeil === t[0]) + '">' + t[1] + '</button>';
     }).join('') + '</div>' + inhalt +
-      '<p class="leise">Quelle: Earned-Value-Formeln und die vier Szenario-Muster nach Andrew Ramdayals PMP-Buch (Kapitel 9). Beispiele, Zahlen und Texte sind eigene.</p>';
+      '<p class="leise">Gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene. <a href="#/quellen">Quellen und Hinweise</a></p>';
   }
 
   function bindeEv() {
@@ -1291,7 +1289,7 @@
       }).join('') + '<div class="zeile summe"><span>Prozesse gesamt</span><span>40</span></div></div></section>' +
       '<section class="karte"><span class="ueber">6 Principles</span><ol class="principles" lang="en">' +
       PRINCIPLES.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></section>' +
-      '<p class="leise">Quelle: Prozessübersicht zum PMBOK Guide 8 aus Andrew Ramdayals PMP-Buch. Eigene Darstellung; Focus Areas entsprechen den früheren Process Groups.</p>' +
+      '<p class="leise">Eigene Darstellung nach der Struktur des PMBOK Guide 8; Focus Areas entsprechen den früheren Process Groups. <a href="#/quellen">Quellen und Hinweise</a></p>' +
       '</main>' + nav('uebersicht');
   }
 
@@ -1340,7 +1338,8 @@
         return '<button data-theme="' + m[0] + '" aria-pressed="' + (t === m[0]) + '">' + m[1] + '</button>';
       }).join('') + '</div><p class="leise">Auto folgt der Einstellung des Handys.</p></section>' +
       versionsKarte() +
-      '<section class="karte"><span class="ueber">Rechtliches</span><a class="zeilenlink" href="#/datenschutz">Datenschutzerklärung' + IKON.rechts + '</a></section>' +
+      '<section class="karte"><span class="ueber">Rechtliches</span><a class="zeilenlink" href="#/datenschutz">Datenschutzerklärung' + IKON.rechts + '</a>' +
+      '<a class="zeilenlink" href="#/quellen">Quellen und Hinweise' + IKON.rechts + '</a></section>' +
       '<p class="leise" style="text-align:center">PMP-Lernpartner ' + APP_VERSION + '</p></main>';
     app.innerHTML = html;
     app.querySelectorAll('[data-theme]').forEach(function (el) {
@@ -1683,6 +1682,31 @@
       '</article></main>';
   }
 
+  /* ---------- Quellen und Hinweise (seit Lern-App 1.9.0, Entscheidung 34) ---------- */
+  function zeigeQuellen() {
+    var zurueck = ui.quellenVon || '#/einstellungen';
+    var name = zurueck === '#/uebersicht' ? 'Übersicht' : zurueck === '#/start' ? 'Start' : 'Einstellungen';
+    app.innerHTML = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="' + zurueck + '">' + IKON.links + name + '</a></div>' +
+      '<article class="rechtlich">' +
+      '<h1 class="gross">Quellen und Hinweise</h1>' +
+      '<h2>Zweck</h2>' +
+      '<p>Der PMP-Lernpartner ist eine private, nicht-kommerzielle Lernhilfe zur Vorbereitung auf die PMP-Prüfung. Er ersetzt keine offiziellen Unterlagen.</p>' +
+      '<h2>Keine Fragen enthalten</h2>' +
+      '<p>Der PMP-Lernpartner liefert keine Fragen mit. Die Fragenbank stellt jede Person selbst bereit oder erzeugt sie selbst – als eigenes Google Sheet oder als CSV-Datei – und ist für ihren Inhalt selbst verantwortlich.</p>' +
+      '<h2>Quellen der Inhalte</h2>' +
+      '<p>Übersichten, Formeln und Erklärungen in der App beruhen auf frei zugänglichen, öffentlich verfügbaren Informationen; Teile sind mit KI erstellt. Texte aus Veröffentlichungen des PMI oder aus Büchern werden nicht übernommen.</p>' +
+      '<ul><li><b>Prozessübersicht:</b> Eigene Darstellung nach der Struktur des PMBOK Guide 8.</li>' +
+      '<li><b>Earned Value:</b> Gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene.</li></ul>' +
+      '<h2>Marken</h2>' +
+      '<p>PMI, PMP und PMBOK sind eingetragene Marken des Project Management Institute, Inc. Der PMP-Lernpartner steht in keiner Verbindung zum PMI und wird vom PMI weder unterstützt noch geprüft.</p>' +
+      '<h2>Keine Gewähr</h2>' +
+      '<p>Die Inhalte sind sorgfältig erstellt, aber ohne Gewähr für Richtigkeit, Vollständigkeit oder Prüfungserfolg. Maßgeblich sind die offiziellen Unterlagen des PMI.</p>' +
+      '<h2>Fehler gefunden?</h2>' +
+      '<p>Hinweise gern per E-Mail an <a href="mailto:Faceman33@web.de">Faceman33@web.de</a>.</p>' +
+      '<p class="leise">Stand: November 2026 (Lern-App ' + APP_VERSION + ').</p>' +
+      '</article></main>';
+  }
+
   /* ---------- Hilfe: neuen Fragenkatalog einrichten (seit 1.8.0) ---------- */
 
   function zeigeHilfe() {
@@ -1846,7 +1870,7 @@
       '<section class="karte"><p>Verbinde zuerst deine Datenquelle: dein Google Sheet mit dem PMP-Lernpartner-Skript oder eine CSV-Datei mit Fragen.</p>' +
       '<a class="knopf" href="#/datenquelle">Datenquelle verbinden</a>' +
       '<a class="knopf zweit" href="#/hilfe">' + IKON.hilfe + ' Anleitung: Fragenkatalog einrichten</a></section>' +
-      '<p class="leise" style="text-align:center"><a href="#/datenschutz">Datenschutzerklärung</a></p></main>';
+      '<p class="leise" style="text-align:center"><a href="#/datenschutz">Datenschutzerklärung</a> · <a href="#/quellen">Quellen und Hinweise</a></p></main>';
   }
 
   function wendeThemaAn() {
@@ -1871,6 +1895,7 @@
     if (r0.name === 'datenquelle') { var m0 = ui.meldung; ui.meldung = null; return zeigeDatenquelle(m0); }
     if (r0.name === 'verbinden') return zeigeVerbinden(r0.arg);
     if (r0.name === 'datenschutz') return zeigeDatenschutz();
+    if (r0.name === 'quellen') return zeigeQuellen();
     if (r0.name === 'hilfe') return zeigeHilfe();
     if (!fragen.length && !Q) {
       if (r0.name === 'einstellungen') { var m1 = ui.meldung; ui.meldung = null; return zeigeEinstellungen(m1); }
@@ -1913,6 +1938,7 @@
     var r = aktuelleRoute();
     // Fragensets: "Zurück" führt dorthin, woher man kam (Start oder Einstellungen)
     if (r.name === 'sets' && letzteRoute !== 'set' && letzteRoute !== 'f') ui.setsVon = letzteRoute === 'start' ? '#/start' : '#/einstellungen';
+    if (r.name === 'quellen' && letzteRoute !== 'quellen') ui.quellenVon = letzteRoute === 'uebersicht' ? '#/uebersicht' : (letzteRoute === 'start' && !fragen.length) ? '#/start' : '#/einstellungen';
     if (r.name === 'hilfe' && letzteRoute !== 'hilfe') ui.hilfeVon = ['statistik', 'uebersicht', 'einstellungen', 'datenquelle'].indexOf(letzteRoute) >= 0 ? '#/' + letzteRoute : '#/start';
     letzteRoute = r.name;
     var toast = document.querySelector('.toast'); if (toast) toast.remove();

@@ -287,6 +287,7 @@ h1.gross { font-family: var(--head); font-size: 30px; line-height: 1.15; font-we
 .rechtlich { display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.55; }
 .rechtlich h2 { font-family: var(--head); font-size: 18px; font-weight: 600; margin: 14px 0 0; }
 .rechtlich p { margin: 0; }
+.rechtlich ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .rechtlich a { color: var(--accent-text); overflow-wrap: anywhere; }
 
 /* Import-Seite der Android-App (Lern-App 1.6.0) */
