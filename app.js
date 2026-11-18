@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.10.0, 12.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.11.0, 18.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,7 +9,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.10.0';
+  var APP_VERSION = '1.11.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -17,7 +17,7 @@
   var QUELLE_SPEICHER = 'pmplp.quelle';
   var PFLICHT = ['id', 'frage', 'a', 'b', 'c', 'd', 'loesung'];
   var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd', 'e', 'begriffe',
-    'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz'];
+    'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz', 'kapitel'];
   var TAG_MS = 86400000;
   var ECO_ZIEL = { I: 0.33, II: 0.41, III: 0.26 };
   var ECO_NAME = { I: 'People', II: 'Process', III: 'Business Environment' };
@@ -100,12 +100,27 @@
   function setNummer(key) { var n = parseInt(String(key).replace(/\D/g, ''), 10); return isNaN(n) ? key : n; }
   /* Pakete ME1, ME2 … sind Probeprüfungen (Mock Exam) und heißen „Mock Exam 1“ usw. (seit 1.9.1). */
   function mockNummer(key) { var m = /^ME(\d+)$/i.exec(String(key)); return m ? parseInt(m[1], 10) : null; }
+  /* Pakete KAF2 … KAF14 sind Kapitelabschlussfragen (seit 1.11.0). Den Namen liefert die Spalte kapitel
+   * (orange markiert, keine Performance Domain); ohne kapitel heißt das Set „Kapitel n · <Domain>“. */
+  function kafNummer(key) { var m = /^KAF(\d+)$/i.exec(String(key)); return m ? parseInt(m[1], 10) : null; }
+  function kapitelText(key) {
+    for (var i = 0; i < fragen.length; i++) if (fragen[i].paket === key && fragen[i].kapitel) return fragen[i].kapitel;
+    return '';
+  }
   function setName(key) {
     if (key === 'alle') return 'Alle Sets';
     var me = mockNummer(key);
-    return me !== null ? 'Mock Exam ' + me : 'Set ' + setNummer(key);
+    if (me !== null) return 'Mock Exam ' + me;
+    var kaf = kafNummer(key);
+    if (kaf !== null) {
+      var kt = kapitelText(key);
+      if (kt) return kt;
+      var erste = fragen.filter(function (q) { return q.paket === key && q.domain; })[0];
+      return 'Kapitel ' + kaf + (erste ? ' · ' + erste.domain : '');
+    }
+    return 'Set ' + setNummer(key);
   }
-  function setRang(key) { var me = mockNummer(key); return me !== null ? 100000 + me : setNummer(key); }
+  function setRang(key) { var me = mockNummer(key), kaf = kafNummer(key); return me !== null ? 100000 + me : kaf !== null ? 200000 + kaf : setNummer(key); }
   function ecoDomain(q) { return String(q.eco || '').split('-')[0].trim(); }
 
   var IKON = {
@@ -737,7 +752,8 @@
   function einordnung(q) {
     var chip = function (t, v) { return '<div class="chip"><span>' + t + '</span><span>' + esc(v) + '</span></div>'; };
     var html = (q.domain ? chip('Domain', q.domain) : '') + (q.focus_area ? chip('Focus Area', q.focus_area) : '') + (q.prozess ? chip('Prozess', q.prozess) : '');
-    return html ? '<div class="einordnung" aria-label="Einordnung">' + html + '</div>' : '';
+    var band = q.kapitel ? '<div class="kapitelband" lang="de"><span>Kapitel · keine Performance Domain</span><span>' + esc(q.kapitel) + '</span></div>' : '';
+    return band + (html ? '<div class="einordnung" aria-label="Einordnung">' + html + '</div>' : '');
   }
 
   function zeigeFrage() {
@@ -945,7 +961,7 @@
     keys.forEach(function (k) {
       var w = setWerte(k), aktiv = S.aktivesSet === k;
       var anteil = w.n ? Math.round((w.beantwortet / w.n) * 100) : 0;
-      html += '<section class="setkarte' + (aktiv ? ' aktiv' : '') + '">' +
+      html += '<section class="setkarte' + (aktiv ? ' aktiv' : '') + (kapitelText(k) ? ' kapitel' : '') + '">' +
         '<button class="setkopf" data-aktivieren="' + esc(k) + '" aria-pressed="' + aktiv + '"><span class="setname">' + esc(setName(k)) + '</span>' +
         '<span class="abzeichen">' + (aktiv ? 'Aktiv' : 'Auswählen') + '</span></button>' +
         '<div class="werte"><span><b>' + w.n + '</b> Fragen</span><span><b>' + w.richtig + '</b> richtig</span><span><b>' + w.falsch + '</b> falsch</span><span><b>' + w.offen + '</b> offen</span></div>' +
@@ -1911,9 +1927,10 @@
        ['a, b, c, d', 'Pflicht. Die vier Antworten.'],
        ['e', 'Wahlweise. Fünfte Antwort.'],
        ['loesung', 'Pflicht. Buchstabe der richtigen Antwort (A–E). Mehrfachauswahl: mehrere Buchstaben, z. B. „A, C, E“ – gewertet wird nur ganz richtig. Zuordnung: Paare wie „A=Avoid, B=Accept, …“.'],
+       ['kapitel', 'Wahlweise, letzte Spalte. Name eines Buchkapitels ohne Performance Domain, z. B. „Kapitel 2 · Grundlagen“. Die App zeigt ihn orange über der Frage und als Set-Namen.'],
        ['begriffe', 'Nur für Zuordnungen. Die Begriffe, mit | getrennt, z. B. Avoid|Mitigate|Transfer|Accept. Die Szenarien stehen in a–d (e).'],
        ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
-       ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“, ME1 = „Mock Exam 1“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
+       ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“, ME1 = „Mock Exam 1“, KAF7 = „Kapitel 7 · <Domain>“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
        ['domain, focus_area, prozess', 'Wahlweise. Einordnung über der Frage und Grundlage der Statistik.'],
        ['warum, warum_nicht', 'Wahlweise. Erklärung der richtigen bzw. der falschen Antworten.'],
        ['referenz, merksatz', 'Wahlweise. Erscheinen bei falscher Antwort.']
@@ -1999,7 +2016,7 @@
       '<button class="knopf klein" data-verbinden>Verbinden</button></div>' +
       '<p class="leise">Der Code enthält deinen persönlichen Schlüssel. Er bleibt nur auf diesem Gerät und in deiner Lernstand-Sicherung. Gib ihn nicht weiter.</p></section>' +
       '<section class="karte"><span class="ueber">Lokale Datei</span>' +
-      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–E, mehrere Buchstaben oder Zuordnung). Wahlweise: e, begriffe, aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
+      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–E, mehrere Buchstaben oder Zuordnung). Wahlweise: e, begriffe, kapitel, aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
       '<label class="knopf zweit klein" style="cursor:pointer">CSV-Datei wählen<input type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain" class="versteckt" data-csv></label></section>' +
       (Q ? '<section class="karte"><span class="ueber">Trennen</span><p class="leise">Entfernt die Verbindung und die geladenen Fragen von diesem Gerät. Dein Lernstand bleibt erhalten.</p>' +
         '<button class="knopf zweit klein" data-trennen>Trennen</button></section>' : '') +

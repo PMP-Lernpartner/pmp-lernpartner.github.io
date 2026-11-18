@@ -13,6 +13,7 @@
   --accent: #2747C9; --accent-text: #2747C9; --bar: #2747C9;
   --ok-bg: #E3F3EC; --ok-border: #9FD3BC; --ok-text: #0B6B4F; --ok-on: #FFFFFF;
   --bad-bg: #FDF0E6; --bad-border: #F2C29E; --bad-text: #9A3D06; --bad-on: #FFFFFF; --bad-line: #D9661F;
+  --kap-bg: #FFF3D6; --kap-border: #F5A524; --kap-text: #7A4A00; --kap-sub: #9A6A12;
   --knob: #FFFFFF; --knob-shadow: 0 1px 2px rgba(17,24,39,.14);
   --head: 'Space Grotesk', Inter, system-ui, sans-serif;
   color-scheme: light;
@@ -23,6 +24,7 @@
   --accent-text: #8EA2F5; --bar: #8EA2F5;
   --ok-bg: #12291F; --ok-border: #2C6B50; --ok-text: #6FD3A8; --ok-on: #0F1217;
   --bad-bg: #2E1B0F; --bad-border: #7A4220; --bad-text: #F4A26B; --bad-on: #0F1217;
+  --kap-bg: #2E2208; --kap-border: #B9790F; --kap-text: #FFC566; --kap-sub: #E0A848;
   --knob: #2F3541; --knob-shadow: none;
   color-scheme: dark;
 }
@@ -33,6 +35,7 @@
     --accent-text: #8EA2F5; --bar: #8EA2F5;
     --ok-bg: #12291F; --ok-border: #2C6B50; --ok-text: #6FD3A8; --ok-on: #0F1217;
     --bad-bg: #2E1B0F; --bad-border: #7A4220; --bad-text: #F4A26B; --bad-on: #0F1217;
+    --kap-bg: #2E2208; --kap-border: #B9790F; --kap-text: #FFC566; --kap-sub: #E0A848;
     --knob: #2F3541; --knob-shadow: none;
     color-scheme: dark;
   }
@@ -327,3 +330,10 @@ textarea.eingabe { resize: vertical; font-family: ui-monospace, SFMono-Regular, 
 .hilfe-tabelle code, .karte code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .code-beispiel { margin: 0; padding: 12px; background: var(--sunken); border-radius: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 ul.schritte { list-style: disc; }
+/* Kapitel ohne Performance Domain (Spalte kapitel, seit 1.11.0) */
+.kapitelband { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; margin-bottom: 8px; background: var(--kap-bg); border: 1.5px solid var(--kap-border); border-radius: 10px; }
+.kapitelband span:first-child { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--kap-sub); }
+.kapitelband span:last-child { font-size: 14px; font-weight: 600; color: var(--kap-text); }
+.setkarte.kapitel { background: var(--kap-bg); border-color: var(--kap-border); }
+.setkarte.kapitel .setname { color: var(--kap-text); }
+.setkarte.kapitel.aktiv { border: 2px solid var(--kap-border); }
