@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.12.0, 19.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.13.0, 19.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,7 +9,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.12.0';
+  var APP_VERSION = '1.13.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -67,6 +67,7 @@
       v: 1,
       theme: s.theme || 'auto',
       aktivesSet: s.aktivesSet || 'alle',
+      auswahl: Array.isArray(s.auswahl) ? s.auswahl.filter(function (k) { return typeof k === 'string'; }) : [],
       antworten: s.antworten || {},
       fehler: s.fehler || {},
       reset: s.reset || {},
@@ -109,6 +110,7 @@
   }
   function setName(key) {
     if (key === 'alle') return 'Alle Sets';
+    if (key === 'auswahl') return 'Eigene Auswahl (' + gueltigeAuswahl().length + (gueltigeAuswahl().length === 1 ? ' Set)' : ' Sets)');
     var me = mockNummer(key);
     if (me !== null) return 'Mock Exam ' + me;
     var kaf = kafNummer(key);
@@ -388,7 +390,8 @@
     nachId = {};
     fragen.forEach(function (q) { nachId[q.id] = q; });
     datenStand = stand;
-    if (S.aktivesSet !== 'alle' && !setKeys().some(function (k) { return k === S.aktivesSet; })) S.aktivesSet = 'alle';
+    if (S.aktivesSet === 'auswahl') { if (!gueltigeAuswahl().length) S.aktivesSet = 'alle'; }
+    else if (S.aktivesSet !== 'alle' && !setKeys().some(function (k) { return k === S.aktivesSet; })) S.aktivesSet = 'alle';
   }
   function merkeCsv(text, stand) {
     try { localStorage.setItem(CSV_SPEICHER, JSON.stringify({ text: text, stand: stand })); } catch (e) {}
@@ -521,7 +524,16 @@
     fragen.forEach(function (q) { m[q.paket] = true; });
     return Object.keys(m).sort(function (a, b) { return setRang(a) - setRang(b); });
   }
+  /* Eigene Auswahl (seit 1.13.0): S.aktivesSet = 'auswahl', die gewählten Sets stehen in S.auswahl. */
+  function gueltigeAuswahl() {
+    var da = {}; setKeys().forEach(function (k) { da[k] = true; });
+    return (S.auswahl || []).filter(function (k) { return da[k]; });
+  }
   function fragenImSet(key) {
+    if (key === 'auswahl') {
+      var w = {}; gueltigeAuswahl().forEach(function (k) { w[k] = true; });
+      return fragen.filter(function (q) { return w[q.paket]; });
+    }
     return key === 'alle' ? fragen.slice() : fragen.filter(function (q) { return q.paket === key; });
   }
   function resetZeit(q) { return S.reset[q.paket] || 0; }
@@ -953,11 +965,33 @@
     zeigeFrage();
   }
 
+  function setGruppe(k) { return mockNummer(k) !== null ? 'mock' : kafNummer(k) !== null ? 'kapitel' : 'sets'; }
+  function auswahlKarte(keys) {
+    if (keys.length < 2) return '';
+    var gew = gueltigeAuswahl(), aktiv = S.aktivesSet === 'auswahl', w = setWerte('auswahl');
+    var gruppen = [['sets', 'Sets'], ['mock', 'Mock Exams'], ['kapitel', 'Kapitel']].filter(function (g) {
+      return keys.some(function (k) { return setGruppe(k) === g[0]; });
+    });
+    return '<section class="setkarte auswahl' + (aktiv ? ' aktiv' : '') + '">' +
+      '<div class="setkopf"><span class="setname">Eigene Auswahl</span><span class="abzeichen">' + (aktiv ? 'Aktiv' : gew.length + ' gewählt') + '</span></div>' +
+      '<p class="leise">Tippe die Sets an, die du zusammen lernen willst.' + (aktiv ? ' Änderungen gelten sofort.' : '') + '</p>' +
+      '<div class="wahlsets" role="group" aria-label="Sets für die eigene Auswahl">' + keys.map(function (k) {
+        var an = gew.indexOf(k) >= 0;
+        return '<button class="wahlset' + (kapitelText(k) ? ' kapitel' : '') + '" data-wahlset="' + esc(k) + '" aria-pressed="' + an + '">' + (an ? IKON.ok : '') + '<span>' + esc(setName(k)) + '</span></button>';
+      }).join('') + '</div>' +
+      '<div class="setaktionen">' + gruppen.map(function (g) { return '<button class="textknopf" data-wahlgruppe="' + g[0] + '">+ ' + g[1] + '</button>'; }).join('') +
+      (gew.length ? '<button class="textknopf gefahr" data-wahlgruppe="keine">Keine</button>' : '') + '</div>' +
+      '<div class="werte"><span><b>' + w.n + '</b> Fragen aus ' + gew.length + (gew.length === 1 ? ' Set' : ' Sets') + '</span><span><b>' + w.richtig + '</b> richtig</span><span><b>' + w.falsch + '</b> falsch</span><span><b>' + w.offen + '</b> offen</span></div>' +
+      (aktiv ? '' : '<p class="eingabefehler" role="alert"></p><button class="knopf klein" data-auswahl-lernen>Diese Auswahl lernen</button>') +
+      '</section>';
+  }
+
   function zeigeSets() {
     var keys = setKeys();
     var vonStart = ui.setsVon === '#/start';
     var html = '<main class="seite"><div class="kopf"><a class="textknopf zurueck" href="' + ui.setsVon + '">' + IKON.links +
       (vonStart ? 'Lernen' : 'Einstellungen') + '</a></div><h1 class="gross">Fragensets</h1>' + datenHinweis();
+    html += auswahlKarte(keys);
     keys.forEach(function (k) {
       var w = setWerte(k), aktiv = S.aktivesSet === k;
       var anteil = w.n ? Math.round((w.beantwortet / w.n) * 100) : 0;
@@ -986,6 +1020,32 @@
         sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false };
         render();
       });
+    });
+    var neuStart = function () { S.offen = null; sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'lernen', durch: false }; };
+    var setzeAuswahl = function (liste) {
+      S.auswahl = liste;
+      if (S.aktivesSet === 'auswahl') {
+        if (!gueltigeAuswahl().length) S.aktivesSet = 'alle';
+        neuStart();
+      }
+      speichere(); render();
+    };
+    app.querySelectorAll('[data-wahlset]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var k = el.getAttribute('data-wahlset'), liste = gueltigeAuswahl();
+        setzeAuswahl(liste.indexOf(k) >= 0 ? liste.filter(function (x) { return x !== k; }) : liste.concat([k]));
+      });
+    });
+    app.querySelectorAll('[data-wahlgruppe]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var g = el.getAttribute('data-wahlgruppe');
+        setzeAuswahl(g === 'keine' ? [] : keys.filter(function (k) { return setGruppe(k) === g; }).concat(gueltigeAuswahl().filter(function (k) { return setGruppe(k) !== g; })));
+      });
+    });
+    var lerne = app.querySelector('[data-auswahl-lernen]');
+    if (lerne) lerne.addEventListener('click', function () {
+      if (!gueltigeAuswahl().length) { var f = app.querySelector('.auswahl .eingabefehler'); if (f) f.textContent = 'Wähle mindestens ein Set.'; return; }
+      S.aktivesSet = 'auswahl'; neuStart(); speichere(); render();
     });
     app.querySelectorAll('[data-reset]').forEach(function (el) {
       el.addEventListener('click', function () { ui.bestaetigen = el.getAttribute('data-reset'); render(); });
@@ -1502,6 +1562,7 @@
 
   function fragenbankKarte() {
     var aktiv = S.aktivesSet === 'alle' ? 'Alle Sets gemischt' : setName(S.aktivesSet);
+    if (S.aktivesSet === 'auswahl') aktiv = 'Eigene Auswahl: ' + gueltigeAuswahl().map(setName).join(', ');
     var n = vorrat.bereit ? vorrat.bereit.length : 0;
     return '<section class="karte" data-fb-karte><span class="ueber">Fragenbank und Sets</span>' +
       '<a class="zeilenlink" href="#/datenquelle"><span>Datenquelle: ' + esc(quelleText()) + '</span>' + IKON.rechts + '</a>' +

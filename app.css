@@ -337,3 +337,10 @@ ul.schritte { list-style: disc; }
 .setkarte.kapitel { background: var(--kap-bg); border-color: var(--kap-border); }
 .setkarte.kapitel .setname { color: var(--kap-text); }
 .setkarte.kapitel.aktiv { border: 2px solid var(--kap-border); }
+/* Eigene Auswahl mehrerer Sets (seit 1.13.0) */
+.wahlsets { display: flex; flex-wrap: wrap; gap: 8px; }
+.wahlset { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-radius: 999px; border: 1.5px solid var(--strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+.wahlset svg { width: 16px; height: 16px; flex: none; }
+.wahlset[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wahlset.kapitel { border-color: var(--kap-border); }
+.wahlset.kapitel[aria-pressed="false"] { background: var(--kap-bg); color: var(--kap-text); }
