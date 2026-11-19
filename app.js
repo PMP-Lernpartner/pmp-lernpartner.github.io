@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.11.0, 18.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.12.0, 19.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,14 +9,14 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.11.0';
+  var APP_VERSION = '1.12.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
    * { art: 'sheet', url: '…/exec', schluessel: '…', name: '…' } oder { art: 'datei', name: '…' } */
   var QUELLE_SPEICHER = 'pmplp.quelle';
   var PFLICHT = ['id', 'frage', 'a', 'b', 'c', 'd', 'loesung'];
-  var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd', 'e', 'begriffe',
+  var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd', 'e', 'f', 'begriffe',
     'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz', 'kapitel'];
   var TAG_MS = 86400000;
   var ECO_ZIEL = { I: 0.33, II: 0.41, III: 0.26 };
@@ -313,11 +313,11 @@
   }
 
   /* Fragetypen (seit Lern-App 1.10.0):
-   *   einfach   – eine Lösung A–E (Spalte e wahlweise)
+   *   einfach   – eine Lösung A–F (Spalten e und f wahlweise; f seit 1.12.0)
    *   mehrfach  – mehrere Buchstaben, z. B. „A, C, E“; gewertet nach „alles oder nichts“
    *   zuordnung – Paare „A=Avoid, B=Accept, …“; die Begriffe stehen in Spalte begriffe, mit | getrennt
    * Normalisiert q.loesung, setzt q.typ und q.optionen. Gibt false zurück, wenn die Lösung nicht passt. */
-  var BUCHSTABEN = ['A', 'B', 'C', 'D', 'E'];
+  var BUCHSTABEN = ['A', 'B', 'C', 'D', 'E', 'F'];
   function pruefeLoesung(q) {
     q.optionen = BUCHSTABEN.filter(function (b) { return String(q[b.toLowerCase()] || '') !== ''; });
     if (['A', 'B', 'C', 'D'].some(function (b) { return q.optionen.indexOf(b) < 0; })) return false;
@@ -327,7 +327,7 @@
       if (begriffe.length < 2) return false;
       var paare = {}, gut = true;
       roh.split(/\s*[,;]\s*/).forEach(function (teil) {
-        var m = teil.match(/^([A-Ea-e])\s*=\s*(.+)$/);
+        var m = teil.match(/^([A-Fa-f])\s*=\s*(.+)$/);
         if (!m) { gut = false; return; }
         var b = m[1].toUpperCase();
         var treffer = begriffe.filter(function (t) { return t.toLowerCase() === m[2].trim().toLowerCase(); })[0];
@@ -351,7 +351,7 @@
   }
   function leseZuordnung(text) {
     var m = {};
-    String(text || '').split(/\s*,\s*/).forEach(function (t) { var x = t.match(/^([A-E])=(.+)$/); if (x) m[x[1]] = x[2]; });
+    String(text || '').split(/\s*,\s*/).forEach(function (t) { var x = t.match(/^([A-F])=(.+)$/); if (x) m[x[1]] = x[2]; });
     return m;
   }
 
@@ -820,9 +820,9 @@
   }
 
   function warumNicht(q, wahl) {
-    var teile = String(q.warum_nicht || '').split(/\s*·\s*(?=[A-E]:)/);
+    var teile = String(q.warum_nicht || '').split(/\s*·\s*(?=[A-F]:)/);
     for (var i = 0; i < teile.length; i++) {
-      var m = teile[i].match(/^([A-E]):\s*([\s\S]*)$/);
+      var m = teile[i].match(/^([A-F]):\s*([\s\S]*)$/);
       if (m && m[1] === wahl) return m[2].trim();
     }
     return '';
@@ -1926,7 +1926,8 @@
        ['frage', 'Pflicht. Fragetext. Zeilen, die mit | beginnen, erscheinen als Tabelle (erste Zeile = Kopfzeile).'],
        ['a, b, c, d', 'Pflicht. Die vier Antworten.'],
        ['e', 'Wahlweise. Fünfte Antwort.'],
-       ['loesung', 'Pflicht. Buchstabe der richtigen Antwort (A–E). Mehrfachauswahl: mehrere Buchstaben, z. B. „A, C, E“ – gewertet wird nur ganz richtig. Zuordnung: Paare wie „A=Avoid, B=Accept, …“.'],
+       ['f', 'Wahlweise. Sechste Antwort (nur mit e).'],
+       ['loesung', 'Pflicht. Buchstabe der richtigen Antwort (A–F). Mehrfachauswahl: mehrere Buchstaben, z. B. „A, C, E“ – gewertet wird nur ganz richtig. Zuordnung: Paare wie „A=Avoid, B=Accept, …“.'],
        ['kapitel', 'Wahlweise, letzte Spalte. Name eines Buchkapitels ohne Performance Domain, z. B. „Kapitel 2 · Grundlagen“. Die App zeigt ihn orange über der Frage und als Set-Namen.'],
        ['begriffe', 'Nur für Zuordnungen. Die Begriffe, mit | getrennt, z. B. Avoid|Mitigate|Transfer|Accept. Die Szenarien stehen in a–d (e).'],
        ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
@@ -2016,7 +2017,7 @@
       '<button class="knopf klein" data-verbinden>Verbinden</button></div>' +
       '<p class="leise">Der Code enthält deinen persönlichen Schlüssel. Er bleibt nur auf diesem Gerät und in deiner Lernstand-Sicherung. Gib ihn nicht weiter.</p></section>' +
       '<section class="karte"><span class="ueber">Lokale Datei</span>' +
-      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–E, mehrere Buchstaben oder Zuordnung). Wahlweise: e, begriffe, kapitel, aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
+      '<p class="leise">CSV-Datei (UTF-8, Komma getrennt) mit Spaltenköpfen in der ersten Zeile. Pflicht: id, frage, a, b, c, d, loesung (A–F, mehrere Buchstaben oder Zuordnung). Wahlweise: e, f, begriffe, kapitel, aktiv, domain, focus_area, prozess, warum, warum_nicht, referenz, merksatz, paket. Die Fragen bleiben nur auf diesem Gerät; für neue Fragen liest du eine neue Datei ein.</p>' +
       '<label class="knopf zweit klein" style="cursor:pointer">CSV-Datei wählen<input type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain" class="versteckt" data-csv></label></section>' +
       (Q ? '<section class="karte"><span class="ueber">Trennen</span><p class="leise">Entfernt die Verbindung und die geladenen Fragen von diesem Gerät. Dein Lernstand bleibt erhalten.</p>' +
         '<button class="knopf zweit klein" data-trennen>Trennen</button></section>' : '') +
