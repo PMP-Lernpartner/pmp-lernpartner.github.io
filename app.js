@@ -1,4 +1,4 @@
-/* PMP-Lernpartner – Lern-App (Version 1.13.0, 19.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.13.1, 19.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
@@ -9,7 +9,7 @@
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.13.0';
+  var APP_VERSION = '1.13.1';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -596,7 +596,10 @@
 
     var faellig = pool.filter(function (q) { return istFaellig(q.id, jetzt); })
       .sort(function (a, b) { return S.fehler[a.id].t - S.fehler[b.id].t; });
-    if (faellig.length) return { q: ohne(faellig)[0], durch: false };
+    // Die gerade gezeigte Frage nie als fällige Fehlerfrage wiederholen (seit 1.13.1; vorher kam sie zurück,
+    // wenn sie die einzige fällige war)
+    faellig = faellig.filter(function (q) { return q.id !== ausser; });
+    if (faellig.length) return { q: faellig[0], durch: false };
 
     var neu = pool.filter(function (q) { return status(q) === 'offen'; });
     if (neu.length) return { q: gewichtetNeu(pool, ohne(neu)), durch: false };
@@ -646,6 +649,9 @@
     } else if (S.fehler[q.id]) {
       S.fehler[q.id].serie = (S.fehler[q.id].serie || 0) + 1;
       if (S.fehler[q.id].serie >= 2) delete S.fehler[q.id];
+      // Seit 1.13.1: Abstand neu starten – die zweite richtige Antwort kommt frühestens morgen
+      // und nach 10 anderen Fragen. Vorher blieb die Frage sofort fällig und kam gleich wieder.
+      else { S.fehler[q.id].t = jetzt; S.fehler[q.id].n = S.zaehler; }
     }
     S.offen = null;
     speichere();
