@@ -15,7 +15,7 @@
       if (!x || typeof x !== 'object') return;
       auf[id] = { status: x.status === 'geloest' ? 'geloest' : 'angefangen', t: Number(x.t) || 0, stand: x.stand && typeof x.stand === 'object' ? x.stand : null };
     });
-    return { einst: { sofort: e.sofort === true, formel: e.formel === true }, aufgaben: auf };
+    return { einst: { sofort: e.sofort === true, formel: e.formel === true, gegeben: e.gegeben === true }, aufgaben: auf };
   }
 
   function PMPUeben(ctx) {
@@ -969,7 +969,10 @@
       return { id: q.id, q: q, p: p, werte: (st && st.werte) || {}, ergebnis: null, letztes: null, rech: { ausdruck: '', erg: null, verlauf: (st && st.verlauf) || [] } };
     }
     function ezl(t) { return ctx.evZahlLesen(String(t == null ? '' : t).replace(/[−–]/g, '-')); }
-    function evGegeben(k) { return evEd.p.geg[k] != null && KZ.indexOf(k) >= 0; }
+    /* Gegebene Werte (z. B. BAC, AC) stehen nur mit Häkchen „Gegebene Werte eintragen“ vorbelegt und gesperrt im Blatt (seit 1.14.1);
+     * sonst ist das Blatt leer und sie werden wie jede Kennzahl eingetragen und geprüft. */
+    function evIstGegeben(k) { return evEd.p.geg[k] != null && KZ.indexOf(k) >= 0; }
+    function evGegeben(k) { return U().einst.gegeben === true && evIstGegeben(k); }
     function eigeneWerte() {
       var v = {}, ex = evEd.p.exakt;
       ['dauer', 'zeit', 'plan', 'fertig'].forEach(function (k) { if (ex[k] != null) v[k] = ex[k]; });
@@ -1027,7 +1030,8 @@
         '<details class="karte ue-aufgabe"' + (statusVon(q.id) === 'offen' ? ' open' : '') + '><summary>Aufgabe</summary><div class="fragetext" lang="en">' + ctx.fragetextHtml(q.frage) + '</div>' +
         '<p><b>Gegeben:</b> ' + esc(evGegebenText()) + '</p></details>' +
         '<div class="ue-schalter"><label><input type="checkbox" data-einst="sofort"' + (einst.sofort ? ' checked' : '') + '> Sofort prüfen</label>' +
-        '<label><input type="checkbox" data-einst="formel"' + (einst.formel ? ' checked' : '') + '> Formel beim Tippen</label></div>';
+        '<label><input type="checkbox" data-einst="formel"' + (einst.formel ? ' checked' : '') + '> Formel beim Tippen</label>' +
+        '<label><input type="checkbox" data-einst="gegeben"' + (einst.gegeben ? ' checked' : '') + '> Gegebene Werte eintragen</label></div>';
       GRUPPEN.forEach(function (gr) {
         html += '<section class="karte"><span class="ueber">' + esc(gr[0]) + '</span>' + gr[1].map(function (k) {
           var geg = evGegeben(k), wert = geg ? zahlDe(e.p.geg[k]) : (e.werte[k] || '');
@@ -1121,7 +1125,11 @@
       });
       app.querySelector('[data-ev-pruefen]').addEventListener('click', evPruefe);
       app.querySelectorAll('[data-einst]').forEach(function (c) {
-        c.addEventListener('change', function () { U().einst[c.getAttribute('data-einst')] = c.checked; ctx.speichere(); if (c.getAttribute('data-einst') === 'sofort' && c.checked) evPruefe(); if (!c.checked) formel.hidden = true; });
+        c.addEventListener('change', function () {
+          var a = c.getAttribute('data-einst'); U().einst[a] = c.checked; ctx.speichere();
+          if (a === 'gegeben') { var y = window.scrollY; zeigeEv(evEd.q); window.scrollTo(0, y); return; }
+          if (a === 'sofort' && c.checked) evPruefe(); if (!c.checked) formel.hidden = true;
+        });
       });
       bindeRechner();
     }
