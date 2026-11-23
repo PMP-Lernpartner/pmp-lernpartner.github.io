@@ -1,15 +1,16 @@
-/* PMP-Lernpartner – Lern-App (Version 1.13.2, 23.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.14.0, 23.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
  * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
  * plant das Handy die täglichen Erinnerungen selbst.
+ * Seit 1.14.0 Reiter „Üben“ (Netzplan, Earned Value) aus ueben.js; Aufgaben stehen in der Spalte daten.
  */
 (function () {
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.13.2';
+  var APP_VERSION = '1.14.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -17,7 +18,7 @@
   var QUELLE_SPEICHER = 'pmplp.quelle';
   var PFLICHT = ['id', 'frage', 'a', 'b', 'c', 'd', 'loesung'];
   var SPALTEN = ['id', 'aktiv', 'domain', 'focus_area', 'prozess', 'eco', 'eco_titel', 'approach', 'konzept', 'frage', 'a', 'b', 'c', 'd', 'e', 'f', 'begriffe',
-    'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz', 'kapitel'];
+    'loesung', 'warum', 'warum_nicht', 'referenz', 'merksatz', 'paket', 'notiz', 'kapitel', 'daten'];
   var TAG_MS = 86400000;
   var ECO_ZIEL = { I: 0.33, II: 0.41, III: 0.26 };
   var ECO_NAME = { I: 'People', II: 'Process', III: 'Business Environment' };
@@ -48,6 +49,7 @@
 
   var S = ladeZustand();
   var fragen = [];          // nur aktive Fragen
+  var uebungen = [];        // Übungen (Spalte daten beginnt mit CPM oder EVM, seit 1.14.0) – nicht in Sets, Quote und Erinnerungen
   var alleZeilen = 0;       // Zeilen im Sheet
   var nachId = {};
   var datenStand = null;    // Zeitpunkt der geladenen CSV
@@ -75,6 +77,7 @@
       offen: s.offen || null,
       name: typeof s.name === 'string' ? s.name.slice(0, 40) : '',
       erinnerung: normErinnerung(s.erinnerung),
+      ueben: window.PMPUeben ? window.PMPUeben.norm(s.ueben) : (s.ueben || { einst: {}, aufgaben: {} }),
     };
   }
   function normErinnerung(e) {
@@ -139,6 +142,7 @@
     lernen: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>',
     sets: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
     uebersicht: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>',
+    ueben: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="9" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="16" y="15" width="6" height="6" rx="1"/><path d="M8 12h4v-6h4M12 12v6h4"/></svg>',
     statistik: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M6 16v-5"/><path d="M11 16V6"/><path d="M16 16v-8"/><path d="M21 16v-3"/></svg>',
   };
 
@@ -367,7 +371,7 @@
     var fehlt = PFLICHT.filter(function (h) { return kopf.indexOf(h) < 0; });
     if (fehlt.length) throw new Error('Spalten fehlen: ' + fehlt.join(', ') + ' (erste Zeile muss die Spaltenköpfe enthalten)');
     var mitAktiv = kopf.indexOf('aktiv') >= 0;
-    var liste = [], zeilen = 0;
+    var liste = [], uebListe = [], zeilen = 0;
     for (var r = 1; r < z.length; r++) {
       if (z[r].join('').trim() === '') continue;
       zeilen++;
@@ -377,15 +381,17 @@
       if (!q.id || !q.frage) continue;
       if (mitAktiv && q.aktiv.toLowerCase() !== 'ja') continue;
       if (!q.paket) q.paket = q.id.indexOf('-') > 0 ? q.id.split('-')[0] : 'P01';
+      if (/^\s*(CPM|EVM)\b/i.test(q.daten)) { uebListe.push(q); continue; }   // Übung (seit 1.14.0)
       if (!pruefeLoesung(q)) continue;
       liste.push(q);
     }
     if (!liste.length) throw new Error('Keine aktiven Fragen gefunden');
-    return { liste: liste, zeilen: zeilen };
+    return { liste: liste, zeilen: zeilen, uebungen: uebListe };
   }
   function uebernehmeCsv(text, stand) {
     var e = pruefeCsv(text);
     fragen = e.liste;
+    uebungen = e.uebungen || [];
     alleZeilen = e.zeilen;
     nachId = {};
     fragen.forEach(function (q) { nachId[q.id] = q; });
@@ -668,6 +674,7 @@
       '<a href="#/start"' + p('lernen') + '>' + IKON.lernen + 'Lernen</a>' +
       '<a href="#/statistik"' + p('statistik') + '>' + IKON.statistik + 'Statistik</a>' +
       '<a href="#/uebersicht"' + p('uebersicht') + '>' + IKON.uebersicht + 'Übersicht</a>' +
+      '<a href="#/ueben"' + p('ueben') + '>' + IKON.ueben + 'Üben</a>' +
       '</div></nav>';
   }
   function kopfMitZahnrad(titelHtml) {
@@ -1970,7 +1977,8 @@
       '<h2>Quellen der Inhalte</h2>' +
       '<p>Übersichten, Formeln und Erklärungen in der App beruhen auf frei zugänglichen, öffentlich verfügbaren Informationen; Teile sind mit KI erstellt. Texte aus Veröffentlichungen des PMI oder aus Büchern werden nicht übernommen.</p>' +
       '<ul><li><b>Prozessübersicht:</b> Eigene Darstellung nach der Struktur des PMBOK Guide 8.</li>' +
-      '<li><b>Earned Value:</b> Gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene.</li></ul>' +
+      '<li><b>Earned Value:</b> Gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene.</li>' +
+      '<li><b>Üben (Netzplan, Earned Value):</b> Gängige Rechenregeln der Critical Path Method (Zählweise ab Tag 1) und des Earned Value. Die Aufgaben stehen in der eigenen Fragenbank, nicht in der App.</li></ul>' +
       '<h2>Marken</h2>' +
       '<p>PMI, PMP und PMBOK sind eingetragene Marken des Project Management Institute, Inc. Der PMP-Lernpartner steht in keiner Verbindung zum PMI und wird vom PMI weder unterstützt noch geprüft.</p>' +
       '<h2>Keine Gewähr</h2>' +
@@ -1995,7 +2003,8 @@
        ['e', 'Wahlweise. Fünfte Antwort.'],
        ['f', 'Wahlweise. Sechste Antwort (nur mit e).'],
        ['loesung', 'Pflicht. Buchstabe der richtigen Antwort (A–F). Mehrfachauswahl: mehrere Buchstaben, z. B. „A, C, E“ – gewertet wird nur ganz richtig. Zuordnung: Paare wie „A=Avoid, B=Accept, …“.'],
-       ['kapitel', 'Wahlweise, letzte Spalte. Name eines Buchkapitels ohne Performance Domain, z. B. „Kapitel 2 · Grundlagen“. Die App zeigt ihn orange über der Frage und als Set-Namen.'],
+       ['daten', 'Wahlweise, nur für Übungen im Reiter „Üben“ (seit 1.14.0). Erste Zeile CPM (Netzplan) oder EVM (Earned Value), darunter die gegebenen Werte, je Zeile mit | getrennt, z. B. „A | Start | 2“ oder „BAC | 40000“. Solche Zeilen sind keine Fragen; a–d bleiben leer.'],
+       ['kapitel', 'Wahlweise. Name eines Buchkapitels ohne Performance Domain, z. B. „Kapitel 2 · Grundlagen“. Die App zeigt ihn orange über der Frage und als Set-Namen.'],
        ['begriffe', 'Nur für Zuordnungen. Die Begriffe, mit | getrennt, z. B. Avoid|Mitigate|Transfer|Accept. Die Szenarien stehen in a–d (e).'],
        ['aktiv', 'Wahlweise. „ja“ oder „nein“ zum Abschalten einzelner Fragen. Fehlt die Spalte, sind alle aktiv.'],
        ['paket', 'Wahlweise. Fragenset, z. B. P01 = „Set 1“, ME1 = „Mock Exam 1“, KAF7 = „Kapitel 7 · <Domain>“. Fehlt sie, zählt der Teil der ID vor dem Bindestrich.'],
@@ -2200,6 +2209,8 @@
     if (r.name === 'set') return zeigeSetliste(r.arg);
     if (r.name === 'statistik') return zeigeStatistik();
     if (r.name === 'uebersicht') return zeigeUebersicht();
+    if (r.name === 'ueben') return UEB.zeigeListe();
+    if (r.name === 'uebung') return UEB.zeigeAufgabe(r.arg);
     if (r.name === 'fokus') {
       if (sitzung.quelle !== 'fokus' || sitzung.fokus !== r.arg) sitzung = { id: null, phase: 'frage', antwort: null, quelle: 'fokus', fokus: r.arg, durch: false };
       return zeigeFrage();
@@ -2220,6 +2231,7 @@
     if (r.name === 'hilfe' && letzteRoute !== 'hilfe') ui.hilfeVon = ['statistik', 'uebersicht', 'einstellungen', 'datenquelle'].indexOf(letzteRoute) >= 0 ? '#/' + letzteRoute : '#/start';
     letzteRoute = r.name;
     var toast = document.querySelector('.toast'); if (toast) toast.remove();
+    UEB.verlassen();
     if (r.name === 'frage' && sitzung.quelle === 'lernen' && sitzung.phase === 'feedback') naechste();
     render();
     window.scrollTo(0, 0);
@@ -2246,6 +2258,13 @@
     try { APP.getLaunchUrl().then(function (r) { oeffneLink(r && r.url); }, function () {}); } catch (e) {}
   }
 
+  /* Übungsbereich „Üben“ (ueben.js, seit 1.14.0) */
+  var UEB = window.PMPUeben ? window.PMPUeben({
+    app: app, esc: esc, IKON: IKON, nav: nav, kopfMitZahnrad: kopfMitZahnrad, fragetextHtml: fragetextHtml,
+    zustand: function () { return S; }, speichere: speichere, uebungen: function () { return uebungen; },
+    EV_KZ: EV_KZ, evZahlLesen: evZahlLesen, evDeutung: evDeutung,
+  }) : { zeigeListe: function () { app.innerHTML = '<main class="seite"><p class="meldung fehler">Übungsbereich nicht geladen.</p></main>'; }, zeigeAufgabe: function () { this.zeigeListe(); }, verlassen: function () {} };
+
   wendeThemaAn();
   var ausCache = ladeAusSpeicher();
   render();
@@ -2264,5 +2283,6 @@
   /* Für Tests im Browser */
   window.__pmp = { parseCsv: parseCsv, waehleFrage: waehleFrage, zustand: function () { return S; }, leseCode: leseCode, codeAusUrl: codeAusUrl,
     quelle: function () { return Q; }, exportText: function () { return exportText(); }, fragenZahl: function () { return fragen.length; },
-    evRechne: evRechne, evZahl: evZahl, evDeutung: evDeutung, EV_KZ: EV_KZ, EV_SZENARIEN: EV_SZENARIEN };
+    evRechne: evRechne, evZahl: evZahl, evDeutung: evDeutung, EV_KZ: EV_KZ, EV_SZENARIEN: EV_SZENARIEN,
+    uebungen: function () { return uebungen; }, ueben: UEB.test };
 })();
