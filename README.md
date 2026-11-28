@@ -15,6 +15,7 @@ Persönliche Lern-Web-App für die PMP-Prüfung: zeigt Fragen aus der eigenen Fr
 - **Quellen der Inhalte:** Übersichten, Formeln und Erklärungen beruhen auf frei zugänglichen, öffentlich verfügbaren Informationen; Teile sind mit KI erstellt. Texte aus Veröffentlichungen des PMI oder aus Büchern werden nicht übernommen.
   - Prozessübersicht: eigene Darstellung nach der Struktur des PMBOK Guide 8
   - Earned Value: gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene
+  - Merkhilfen: eigene Merkhilfen; Texte und Beispiele sind eigene
   - Üben (Netzplan, Earned Value): gängige Rechenregeln der Critical Path Method (Zählweise ab Tag 1) und des Earned Value; die Aufgaben stehen in der eigenen Fragenbank, nicht in der App
 - **Marken:** PMI, PMP und PMBOK sind eingetragene Marken des Project Management Institute, Inc. Dieses Projekt steht in keiner Verbindung zum PMI und wird vom PMI weder unterstützt noch geprüft.
 - **Keine Gewähr:** Ohne Gewähr für Richtigkeit, Vollständigkeit oder Prüfungserfolg. Maßgeblich sind die offiziellen Unterlagen des PMI.

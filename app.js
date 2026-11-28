@@ -1,16 +1,17 @@
-/* PMP-Lernpartner – Lern-App (Version 1.14.1, 23.11.2026)
+/* PMP-Lernpartner – Lern-App (Version 1.15.0, 28.11.2026)
  * Liest die Fragenbank aus der selbst verbundenen Datenquelle (eigenes Google Sheet über die
  * Skript-Schnittstelle mit persönlichem Schlüssel, oder eine lokale CSV-Datei), zeigt Fragensets, Fragen und Feedback
  * und speichert den Lernstand nur auf diesem Gerät (localStorage).
  * Läuft im Browser (PWA) und als Android-App (Capacitor); nur in der Android-App
  * plant das Handy die täglichen Erinnerungen selbst.
  * Seit 1.14.0 Reiter „Üben“ (Netzplan, Earned Value) aus ueben.js; Aufgaben stehen in der Spalte daten.
+ * Seit 1.15.0 Übersicht mit Merksatz der Performance Domains, Umschalter „Merkhilfen“ und Sprung von der Frage in die Prozess-Matrix.
  */
 (function () {
   'use strict';
 
   var CFG = window.PMP_CONFIG || {};
-  var APP_VERSION = '1.14.1';
+  var APP_VERSION = '1.15.0';
   var SPEICHER = 'pmplp.v1';
   var CSV_SPEICHER = 'pmplp.csv';
   /* Datenquelle (seit 1.8.0, Entscheidung 32): steht nur auf diesem Gerät, nie im Code.
@@ -56,7 +57,7 @@
   var ladeFehler = '';
   var sitzung = { id: null, phase: 'frage', antwort: null, vorher: null, quelle: 'lernen', durch: false };
   var vorrat = { stand: 0, laedt: false, bereit: null, fehler: '', meldung: '' };
-  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {}, setsVon: '#/einstellungen', uebModus: 'prozesse', evTeil: 'merkhilfe',
+  var ui = { statModus: 'domain', filter: 'alle', bestaetigen: null, statOffen: {}, setsVon: '#/einstellungen', uebModus: 'prozesse', evTeil: 'merkhilfe', merkOffen: {}, vonFrage: null, markiert: null, frageScroll: 0,
     rechner: { bac: '10000', plan: '40', fertig: '50', ac: '4000', zeit: '', dauer: '' } };
 
   function ladeZustand() {
@@ -778,7 +779,9 @@
     var chip = function (t, v) { return '<div class="chip"><span>' + t + '</span><span>' + esc(v) + '</span></div>'; };
     var html = (q.domain ? chip('Domain', q.domain) : '') + (q.focus_area ? chip('Focus Area', q.focus_area) : '') + (q.prozess ? chip('Prozess', q.prozess) : '');
     var band = q.kapitel ? '<div class="kapitelband" lang="de"><span>Kapitel · keine Performance Domain</span><span>' + esc(q.kapitel) + '</span></div>' : '';
-    return band + (html ? '<div class="einordnung" aria-label="Einordnung">' + html + '</div>' : '');
+    var zeigen = q.prozess && !q.kapitel && prozessInListe(q.prozess)
+      ? '<button class="zeigen" data-zeigen="' + esc(q.prozess) + '">' + IKON.uebersicht + 'In Übersicht zeigen</button>' : '';
+    return band + (html ? '<div class="einordnung-zeile"><div class="einordnung" aria-label="Einordnung">' + html + '</div>' + zeigen + '</div>' : '');
   }
 
   function zeigeFrage() {
@@ -842,6 +845,15 @@
         abgeben(zuordnungText(paare, q.optionen));
       }
     });
+    // Zurück aus der Prozess-Matrix: angetippte Auswahl wiederherstellen (seit 1.15.0)
+    var ew = sitzung.entwurf;
+    if (ew && ew.id === q.id) {
+      ew.mehr.forEach(function (b) { var x = app.querySelector('[data-mehr="' + b + '"]'); if (x) x.setAttribute('aria-pressed', 'true'); });
+      Object.keys(ew.zu).forEach(function (b) {
+        app.querySelectorAll('[data-zu="' + b + '"]').forEach(function (x) { x.setAttribute('aria-pressed', x.getAttribute('data-begriff') === ew.zu[b] ? 'true' : 'false'); });
+      });
+    }
+    sitzung.entwurf = null;
   }
 
   function warumNicht(q, wahl) {
@@ -1201,17 +1213,19 @@
   }
 
   /* Matrix der 40 Prozesse: Zeilen = Performance Domains, Spalten = Focus Areas (Reiter Übersicht). */
-  function matrixHtml() {
-    var spalte = {};
+  function matrixHtml(mark) {
+    var spalte = {}, md = null, mf = null;
+    if (mark) DOMAINS.forEach(function (d) { FOCUS.forEach(function (f) { if ((PROZESSE[d][f] || []).indexOf(mark) >= 0) { md = d; mf = f; } }); });
     FOCUS.forEach(function (f) { spalte[f] = 0; DOMAINS.forEach(function (d) { spalte[f] += (PROZESSE[d][f] || []).length; }); });
     var html = '<div class="matrix-rahmen" tabindex="0" aria-label="Prozess-Matrix, seitlich wischen"><table class="matrix"><thead><tr><th class="ecke" scope="col">Domain<span>Focus Area →</span></th>' +
-      FOCUS.map(function (f) { return '<th scope="col">' + esc(f) + '<span>' + spalte[f] + '</span></th>'; }).join('') + '</tr></thead><tbody>';
+      FOCUS.map(function (f) { return '<th scope="col"' + (f === mf ? ' class="mark"' : '') + '>' + esc(f) + '<span>' + spalte[f] + '</span></th>'; }).join('') + '</tr></thead><tbody>';
     DOMAINS.forEach(function (d) {
       var zahl = FOCUS.reduce(function (n, f) { return n + (PROZESSE[d][f] || []).length; }, 0);
-      html += '<tr><th scope="row">' + esc(d) + '<span>' + zahl + '</span></th>' + FOCUS.map(function (f) {
+      html += '<tr><th scope="row"' + (d === md ? ' class="mark"' : '') + '>' + esc(d) + '<span>' + zahl + '</span></th>' + FOCUS.map(function (f) {
         var liste = PROZESSE[d][f] || [];
-        if (!liste.length) return '<td class="leer" aria-label="keine Prozesse">–</td>';
-        return '<td>' + liste.map(function (pz) { return '<span class="m-p" lang="en">' + esc(pz) + '</span>'; }).join('') + '</td>';
+        var z = d === md && f === mf ? ' mark-zelle' : '';
+        if (!liste.length) return '<td class="leer' + z + '" aria-label="keine Prozesse">–</td>';
+        return '<td' + (z ? ' class="mark-zelle"' : '') + '>' + liste.map(function (pz) { return '<span class="m-p' + (pz === mark ? ' markiert' : '') + '" lang="en">' + esc(pz) + '</span>'; }).join('') + '</td>';
       }).join('') + '</tr>';
     });
     return html + '</tbody></table></div>';
@@ -1541,12 +1555,304 @@
     });
   }
 
+  /* ---------- Merkhilfen (Reiter Übersicht, seit Lern-App 1.15.0) ----------
+   * Eigene Merkhilfen: Merksatz der Performance Domains, Organisationsstrukturen, Vertragsarten, Known/Unknown.
+   * Antippbare Wörter (data-merk) öffnen eine Erklärkarte: Englisch Wort für Wort, darunter Deutsch, dann Kurzfassung. */
+  var MERK_INFO = {
+    FUN: ['Functional (Organization)', [['Functional', 'funktional'], ['Organization', 'Organisation']], 'Linienorganisation: Abteilungen führen, Projekt läuft nebenbei'],
+    MX: ['Matrix (Organization)', [['Matrix', 'Matrix'], ['Organization', 'Organisation']], 'Matrixorganisation: Mitarbeitende berichten an Linie und Projekt – je nach Stärke weak, balanced oder strong'],
+    WEAK: ['Weak Matrix', [['Weak', 'schwach'], ['Matrix', 'Matrix']], 'schwache Matrix: die Linie hat mehr Macht als der PM'],
+    BAL: ['Balanced Matrix', [['Balanced', 'ausgeglichen'], ['Matrix', 'Matrix']], 'ausgeglichene Matrix: Macht zwischen Linie und PM geteilt'],
+    STR: ['Strong Matrix', [['Strong', 'stark'], ['Matrix', 'Matrix']], 'starke Matrix: der PM hat mehr Macht als die Linie'],
+    PROJ: ['Projectized', [['Projectized', 'projektorientiert']], 'reine Projektorganisation: der PM steuert alles (auch Project-oriented)'],
+    ORG: ['Organic / Simple', [['Organic', 'organisch'], ['Simple', 'einfach']], 'kleine Firma oder Startup ohne echte PM-Rolle'],
+    VIR: ['Virtual', [['Virtual', 'virtuell']], 'Projektarbeit über virtuelle Meetings und Chats'],
+    PMA: ['PM Authority', [['Project Manager', 'Projektleiter'], ['Authority', 'Befugnis']], 'Entscheidungsbefugnis des Projektleiters'],
+    RC: ['Resource Control by PM', [['Resource', 'Ressource'], ['Control', 'Kontrolle'], ['by', 'durch'], ['PM', 'Projektleiter']], 'wie stark der PM über die Ressourcen verfügt'],
+    BC: ['Budget Control', [['Budget', 'Budget'], ['Control', 'Kontrolle']], 'wer das Projektbudget steuert'],
+    PMR: ['PM Role', [['Project Manager', 'Projektleiter'], ['Role', 'Rolle']], 'Projektleiter in Teil- oder Vollzeit'],
+    PMS: ['PM Staff', [['Project Management', 'Projektmanagement'], ['Staff', 'Personal']], 'Projektteam: arbeitet in Teilzeit oder Vollzeit im Projekt'],
+    PT: ['PT', [['Part', 'Teil'], ['Time', 'Zeit']], 'Teilzeit für das Projekt'],
+    FT: ['FT', [['Full', 'voll'], ['Time', 'Zeit']], 'Vollzeit für das Projekt'],
+    FM: ['FM', [['Functional', 'funktional'], ['Manager', 'Leiter']], 'Linienvorgesetzter, Abteilungsleiter'],
+    PMX: ['PM', [['Project', 'Projekt'], ['Manager', 'Leiter']], 'Projektleiter'],
+    PE: ['Project Expeditor', [['Project', 'Projekt'], ['Expeditor', 'Beschleuniger']], 'Projektunterstützer: organisiert die Arbeit, keine Befugnis, keine Budgetverantwortung'],
+    PC: ['Project Coordinator', [['Project', 'Projekt'], ['Coordinator', 'Koordinator']], 'Projektkoordinator: kann Ressourcen zuweisen, entscheidet aber nicht über das Budget'],
+    FP: ['Fixed Price', [['Fixed', 'fest'], ['Price', 'Preis']], 'Festpreis'],
+    LS: ['Lump Sum', [['Lump', 'Pauschal-'], ['Sum', 'Summe']], 'Pauschalsumme'],
+    FFP: ['FFP', [['Firm', 'verbindlich'], ['Fixed', 'fest'], ['Price', 'Preis']], 'verbindlicher Festpreis'],
+    FPIF: ['FPIF', [['Fixed', 'fest'], ['Price', 'Preis'], ['Incentive', 'Anreiz'], ['Fee', 'Vergütung']], 'Festpreis mit Anreizvergütung'],
+    FPEPA: ['FP-EPA', [['Fixed', 'fest'], ['Price', 'Preis'], ['with', 'mit'], ['Economic', 'wirtschaftlich'], ['Price', 'Preis'], ['Adjustment', 'Anpassung']], 'Festpreis mit wirtschaftlicher Preisanpassung'],
+    CR: ['Cost-Reimbursable', [['Cost', 'Kosten'], ['Reimbursable', 'erstattungsfähig']], 'Kostenerstattungsvertrag'],
+    CP: ['Cost Plus', [['Cost', 'Kosten'], ['Plus', 'zuzüglich']], 'Kosten zuzüglich Gewinn'],
+    CPFF: ['CPFF', [['Cost', 'Kosten'], ['Plus', 'zuzüglich'], ['Fixed', 'fest'], ['Fee', 'Vergütung']], 'Kosten zuzüglich fester Vergütung'],
+    CPIF: ['CPIF', [['Cost', 'Kosten'], ['Plus', 'zuzüglich'], ['Incentive', 'Anreiz'], ['Fee', 'Vergütung']], 'Kosten zuzüglich Anreizvergütung'],
+    TM: ['T&M', [['Time', 'Zeit'], ['and', 'und'], ['Material', 'Material']], 'Abrechnung nach Aufwand'],
+    TC: ['Target-Cost', [['Target', 'Ziel'], ['Cost', 'Kosten']], 'Zielkostenvertrag'],
+    BS: ['Buyer / Seller', [['Buyer', 'Käufer'], ['Seller', 'Verkäufer']], 'Auftraggeber / Auftragnehmer'],
+    VOID: ['voided', [['voided', 'für nichtig erklärt']], 'Vertrag ungültig'],
+    MOB: ['Make-or-buy analysis', [['Make', 'selbst machen'], ['or', 'oder'], ['buy', 'kaufen'], ['analysis', 'Analyse']], 'Eigenfertigung oder Zukauf abwägen'],
+    MR: ['Market research', [['Market', 'Markt'], ['research', 'Untersuchung']], 'Marktrecherche: Was ist in der Branche üblich?'],
+    SSA: ['Source selection analysis', [['Source', 'Bezugsquelle'], ['selection', 'Auswahl'], ['analysis', 'Analyse']], 'Lieferanten nach Kriterien auswählen, nicht nur nach Preis'],
+    SSP: ['Sourcing strategy plan', [['Sourcing', 'Beschaffung'], ['strategy', 'Strategie'], ['plan', 'Plan']], 'Plan, was selbst gemacht und was eingekauft wird'],
+    PSS: ['Plan Sourcing Strategy', [['Plan', 'planen'], ['Sourcing', 'Beschaffung'], ['Strategy', 'Strategie']], 'Beschaffungsstrategie planen'],
+    AGC: ['Agile contracting', [['Agile', 'agil'], ['contracting', 'Vertragsgestaltung']], 'flexible, schrittweise Verträge'],
+    SMC: ['Smart contracts', [['Smart', 'intelligent'], ['contracts', 'Verträge']], 'Zahlung läuft automatisch per Technik'],
+    OBC: ['Outcome-based contracts', [['Outcome', 'Ergebnis'], ['based', 'basiert'], ['contracts', 'Verträge']], 'Bezahlung nach Ergebnis statt Aufwand'],
+    SUC: ['Sustainable contracts', [['Sustainable', 'nachhaltig'], ['contracts', 'Verträge']], 'Verträge mit Nachhaltigkeitszielen (ESG)'],
+    COC: ['Collaborative contracts', [['Collaborative', 'gemeinschaftlich'], ['contracts', 'Verträge']], 'geteiltes Risiko, geteilter Nutzen'],
+    KK: ['Known-Known', [['Known', 'bekannt'], ['Known', 'bekannt']], 'bekannte Tatsache'],
+    KU: ['Known-Unknown', [['Known', 'bekannt'], ['Unknown', 'unbekannt']], 'erkanntes Risiko mit offenem Ausgang'],
+    UK: ['Unknown-Known', [['Unknown', 'unbekannt'], ['Known', 'bekannt']], 'Wissen existiert, das Team kennt es nicht'],
+    UU: ['Unknown-Unknown', [['Unknown', 'unbekannt'], ['Unknown', 'unbekannt']], 'nicht erkanntes Risiko'],
+    CONT: ['Contingency Reserve', [['Contingency', 'Eventualfall'], ['Reserve', 'Reserve']], 'Reserve für erkannte Risiken'],
+    MAN: ['Management Reserve', [['Management', 'Leitung'], ['Reserve', 'Reserve']], 'Reserve des Managements für nicht erkannte Risiken'],
+    CB: ['Cost Baseline', [['Cost', 'Kosten'], ['Baseline', 'Ausgangsbasis']], 'genehmigte Kostenbasis'],
+    RR: ['Risk Register', [['Risk', 'Risiko'], ['Register', 'Verzeichnis']], 'Liste der erkannten Risiken'],
+    CRQ: ['Change Request', [['Change', 'Änderung'], ['Request', 'Antrag']], 'Änderungsantrag'],
+  };
+  var MERK_QUAD = {
+    KK: { geld: 'Scope, normales Budget', kl: 'scope', besch: 'Fakten und Anforderungen. Kein Risiko, sondern normale Projektarbeit; sie stehen im Scope und in der Kostenschätzung.', bsp: 'Die Website braucht fünf Seiten und ein Kontaktformular.' },
+    KU: { geld: 'Contingency Reserve', kl: 'cont', besch: 'Das Team kennt das Risiko, aber nicht, ob und wie stark es eintritt. Es steht im Risk Register und wird mit der Contingency Reserve abgedeckt.', bsp: 'Der Hosting-Anbieter könnte zum Start ausfallen.' },
+    UK: { geld: 'unentdeckt: Management Reserve · aufgedeckt: Scope oder Contingency', kl: 'man', besch: 'Verborgene Tatsache (Hidden Fact): Das Wissen gibt es, nur nicht im Team. Am besten vorher aufdecken, z. B. mit Lessons Learned, Expertenwissen und Manage Project Knowledge.', bsp: 'Die Rechtsabteilung weiß, dass ein Cookie-Banner Pflicht ist – das Team nicht.' },
+    UU: { geld: 'Management Reserve', kl: 'man', besch: 'Niemand hat das Risiko auf dem Schirm, das Wissen gibt es nirgends. Tritt es ein, hilft nur die Management Reserve – sie muss erst über einen Change Request freigegeben (aktiviert) werden.', bsp: 'Der Zahlungsanbieter stellt mitten im Projekt überraschend seine Schnittstelle ein.' },
+  };
+  var MERK_RISIKO = { S: ['Seller', 'r-s'], B: ['Buyer', 'r-b'], G: ['geteilt', 'r-g'] };
+  var MERK_VERTRAG = [
+    { id: 'fp', gr: 1, name: 'Fixed Price', nk: 'FP', lang: 'Lump Sum', lk: 'LS', kern: 'ein fester Preis', r: 'S', sc: 'well-defined',
+      besch: 'Ein fester Preis für klar beschriebene Arbeit. Wird es teurer oder dauert es länger, trägt das der Seller.', bsp: 'Beispiele in den Zeilen darunter.',
+      warum: 'Der Preis steht fest. Kostet die Arbeit mehr als gedacht, zahlt der Seller die Differenz – aus seinem Gewinn.' },
+    { id: 'ffp', name: 'FFP', nk: 'FFP', lang: 'Firm Fixed Price', kern: 'Preis fest; ändert sich nur bei Scope-Änderung', r: 'S', sc: 'well-defined',
+      besch: 'Ein Preis für genau beschriebene Arbeit; Mehraufwand trägt der Seller. Neuer Umfang heißt Change Request mit neuem Preis.',
+      bsp: 'Eine Agentur baut die Website mit fünf festgelegten Seiten für 20.000 €. Braucht sie 30 statt 20 Tage, bleibt es bei 20.000 €. Kommt eine sechste Seite dazu, gibt es einen Change Request.',
+      warum: 'Der Seller bekommt genau den vereinbarten Preis. Jeder Mehraufwand geht zu seinen Lasten: Braucht die Agentur 30 statt 20 Tage, bleibt es bei 20.000 €.' },
+    { id: 'fpif', name: 'FPIF', nk: 'FPIF', lang: 'Fixed Price Incentive Fee', kern: 'Festpreis + Bonus bei Ziel', r: 'S', sc: 'well-defined',
+      besch: 'Wie FFP, dazu ein vorher vereinbarter Bonus, wenn ein Ziel erreicht wird, etwa Termin oder Qualität.',
+      bsp: '20.000 € fest plus 1.000 €, wenn die Website zwei Wochen vor dem Termin live ist.',
+      warum: 'Festpreis wie beim FFP: Mehrkosten trägt der Seller. Der Bonus ist nur eine zusätzliche Chance für ihn.' },
+    { id: 'fpepa', name: 'FP-EPA', nk: 'FPEPA', lang: 'Fixed Price with Economic Price Adjustment', kern: 'Festpreis + vereinbarte Preisanpassung, lange Laufzeit', r: 'S', sc: 'well-defined',
+      besch: 'Für lange Laufzeiten: Der Preis passt sich nach einer vorher vereinbarten Regel an die Wirtschaftslage an, zum Beispiel an die Inflation.',
+      bsp: 'Drei Jahre Hosting für 300 € im Monat; jedes Jahr steigt der Betrag um die vereinbarte Preissteigerung.',
+      warum: 'Mehrkosten trägt der Seller. Nur die vorher vereinbarte Preisanpassung, etwa an die Inflation, nimmt ihm das Risiko allgemeiner Preissteigerungen ab.' },
+    { id: 'cr', gr: 1, name: 'Cost-Reimbursable', nk: 'CR', lang: 'Cost Plus', lk: 'CP', kern: 'Kosten + Fee', r: 'B', sc: 'not well-defined',
+      besch: 'Der Buyer erstattet die tatsächlichen Kosten und zahlt eine Fee als Gewinn des Sellers. Er sollte alle Rechnungen prüfen (audit invoices).', bsp: 'Beispiele in den Zeilen darunter.',
+      warum: 'Der Buyer erstattet alle tatsächlichen Kosten. Steigen sie, zahlt er mehr; der Seller verliert nichts.' },
+    { id: 'cpff', name: 'CPFF', nk: 'CPFF', lang: 'Cost Plus Fixed Fee', kern: 'Kosten + fester Gewinn', r: 'B', sc: 'not well-defined',
+      besch: 'Alle tatsächlichen Kosten werden erstattet; der Gewinn des Sellers ist ein fester Betrag, egal wie hoch die Kosten werden.',
+      bsp: 'Eine neue Shop-Funktion, der Umfang ist noch unklar: Du zahlst alle Entwicklerstunden und Lizenzen plus 3.000 € Gewinn.',
+      warum: 'Alle Kosten gehen an den Buyer. Der Gewinn des Sellers bleibt gleich, egal wie teuer es wird.' },
+    { id: 'cpif', name: 'CPIF', nk: 'CPIF', lang: 'Cost Plus Incentive Fee', kern: 'Kosten + Bonus bei Ziel', r: 'B', rz: 'Seller riskiert den Bonus', sc: 'not well-defined',
+      besch: 'Kosten werden erstattet; einen Bonus gibt es nur, wenn ein vorher vereinbartes Ziel erreicht wird. Verfehlt der Seller es, entgeht ihm der Bonus.',
+      bsp: 'Kosten werden erstattet, plus 2.000 € Bonus, wenn der Shop bis zum Weihnachtsgeschäft fertig ist.',
+      warum: 'Die Kosten trägt der Buyer. Der Seller riskiert nur, den Bonus zu verlieren, wenn er das Ziel verfehlt.' },
+    { id: 'tm', gr: 1, name: 'T&M', nk: 'TM', lang: 'Time and Material', kern: 'Stundensatz + Material, Mischform', r: 'B', sc: 'high-level',
+      besch: 'Bezahlt wird die Zeit zum festen Satz und das Material nach Verbrauch. Gut für kleine oder laufende Arbeiten; der Buyer muss eng überwachen, sonst steigen die Kosten.',
+      bsp: 'Ein Entwickler behebt laufend Fehler für 90 € pro Stunde; Lizenzen werden nach Verbrauch abgerechnet.',
+      warum: 'Jede zusätzliche Stunde und jedes zusätzliche Material bezahlt der Buyer – deshalb muss er eng überwachen.' },
+    { id: 'tc', gr: 1, name: 'Target-Cost', nk: 'TC', lang: 'Target-Cost Contract', kern: 'Zielkosten; Ersparnis und Mehrkosten werden geteilt', r: 'G', sc: 'komplexe Vorhaben',
+      besch: 'Beide vereinbaren Zielkosten und einen Teilungsschlüssel. Ersparnis und Mehrkosten werden geteilt (pain/gain share). Das fördert Zusammenarbeit, braucht aber klare Absprachen und genaues Nachverfolgen.',
+      bsp: 'Ziel 50.000 €, Schlüssel 50:50. Wird es 40.000 €, bekommt jede Seite 5.000 € der Ersparnis; bei 60.000 € trägt jede Seite 5.000 € der Mehrkosten.',
+      warum: 'Ersparnis und Mehrkosten werden nach dem vereinbarten Schlüssel geteilt. Beide tragen einen Teil des Risikos.' },
+  ];
+  var MERK_SATZ = [['Gute', 'Governance'], ['Schiffe', 'Scope'], ['segeln', 'Schedule'], ['flott', 'Finance'], ['Seeleute', 'Stakeholders'], ['rudern', 'Resources'], ['riskant', 'Risk']];
+  var ab = function (w) { return '<b class="ab">' + esc(w.charAt(0)) + '</b>' + esc(w.slice(1)); };
+  var mw = function (wort, key) { return '<button class="mw" data-merk="' + key + '">' + esc(wort) + '</button>'; };
+
+  function merksatzKarte() {
+    return '<section class="karte merk-karte"><span class="ueber">Merksatz · Performance Domains</span>' +
+      '<p class="merk-satz">' + MERK_SATZ.map(function (p, i) {
+        return '<u>' + esc(p[0].charAt(0)) + '</u>' + esc(p[0].slice(1)) + (i === 3 ? ' –' : i < 6 ? '' : '.');
+      }).join(' ') + '</p>' +
+      '<p class="merk-dom" lang="en">' + MERK_SATZ.map(function (p) { return '<span>' + ab(p[1]) + '</span>'; }).join(' · ') + '</p>' +
+      '<button class="textknopf merk-erkl" data-merk="MERK">Erklärung anzeigen ›</button></section>';
+  }
+
+  function merkInfoHtml(k) {
+    if (k === 'MERK') {
+      return '<h2>Merksatz Performance Domains</h2><table class="merk-tab"><thead><tr><th>Wort</th><th>Performance Domain</th></tr></thead><tbody>' +
+        MERK_SATZ.map(function (p) { return '<tr><td>' + ab(p[0]) + '</td><td lang="en">' + ab(p[1]) + '</td></tr>'; }).join('') + '</tbody></table>' +
+        '<h3>Logik der Reihenfolge</h3><ul><li><b>Governance</b> zuerst: der Rahmen – wer entscheidet.</li>' +
+        '<li><b>Scope → Schedule → Finance</b>: was, wann, was kostet es. Das ist das Schiff, der Plan.</li>' +
+        '<li><b>Stakeholders → Resources</b>: die Menschen – erst die Betroffenen, dann das eigene Team. Das sind die Seeleute.</li>' +
+        '<li><b>Risk</b> zum Schluss: blickt auf alles davor – riskant.</li></ul>' +
+        '<h3>Stolperfalle: drei S</h3><p>Im ersten Halbsatz steht der Plan (erst Scope, dann Schedule), im zweiten die Menschen: Seeleute = Stakeholders.</p>';
+    }
+    if (k.indexOf('R:') === 0) {
+      var v = MERK_VERTRAG.filter(function (x) { return x.id === k.slice(2); })[0];
+      if (!v) return '';
+      return '<h2>Risiko: ' + esc(MERK_RISIKO[v.r][0]) + '</h2><p class="leise" lang="en">' + esc(v.name) + ' (' + esc(v.lang) + ')</p><p><b>Warum?</b> ' + esc(v.warum) + '</p>';
+    }
+    var d = MERK_INFO[k];
+    if (!d) return '';
+    var h = '<h2 lang="en">' + esc(d[0]) + '</h2><div class="woerter">' + d[1].map(function (w) {
+      return '<span class="wort"><b lang="en">' + esc(w[0]) + '</b><span>(' + esc(w[1]) + ')</span></span>';
+    }).join('') + '</div><p class="kurzf">→ ' + esc(d[2]) + '</p>';
+    var q = MERK_QUAD[k];
+    if (q) h += '<p><span class="geld ' + q.kl + '">' + esc(q.geld) + '</span></p><p><b>Beschreibung:</b> ' + esc(q.besch) + '</p><p><b>Beispiel:</b> ' + esc(q.bsp) + '</p>';
+    return h;
+  }
+  function zeigeMerkInfo(k) {
+    var html = merkInfoHtml(k);
+    if (!html) return;
+    var alt = document.querySelector('[data-merk-hg]'); if (alt) alt.remove();
+    var d = document.createElement('div');
+    d.className = 'ue-info-hg'; d.setAttribute('data-merk-hg', '');
+    d.innerHTML = '<div class="ue-info merk-info" role="dialog" aria-modal="true">' + html + '<button class="knopf klein" data-merk-zu>Schließen</button></div>';
+    document.body.appendChild(d);
+    d.addEventListener('click', function (ev) { if (ev.target === d || ev.target.hasAttribute('data-merk-zu')) d.remove(); });
+    var zu = d.querySelector('[data-merk-zu]'); if (zu) zu.focus();
+  }
+
+  function merkKarte(id, titel, kurz, inhalt) {
+    return '<details class="mkarte" data-mkarte="' + id + '"' + (ui.merkOffen[id] ? ' open' : '') + '><summary><span><span class="titel">' + titel + '</span>' +
+      '<span class="kurz">' + kurz + '</span></span>' + IKON.rechts + '</summary><div class="minhalt">' + inhalt + '</div></details>';
+  }
+  function merkOrgHtml() {
+    var zeile = function (lab, key, werte) { return '<tr><th scope="row">' + mw(lab, key) + '</th>' + werte.map(function (w) { return '<td>' + w + '</td>'; }).join('') + '</tr>'; };
+    var pt = mw('PT', 'PT'), ft = mw('FT', 'FT'), fm = mw('FM', 'FM'), pm = mw('PM', 'PMX');
+    return '<p class="leise">Seitlich wischen. Begriffe antippen für die Erklärung.</p>' +
+      '<div class="ot-rahmen" tabindex="0" aria-label="Organisationsstrukturen, seitlich wischen"><table class="ot"><thead>' +
+      '<tr><th rowspan="2"></th><th rowspan="2">' + mw('Functional', 'FUN') + '</th><th colspan="3" class="mx">' + mw('Matrix', 'MX') + '</th><th rowspan="2">' + mw('Projectized', 'PROJ') + '</th></tr>' +
+      '<tr><th>' + mw('Weak', 'WEAK') + '</th><th>' + mw('Balanced', 'BAL') + '</th><th>' + mw('Strong', 'STR') + '</th></tr></thead><tbody>' +
+      zeile('PM Authority', 'PMA', ['no / low', 'low', 'low / moderate', 'moderate / high', 'high / total']) +
+      zeile('Resource Control by PM', 'RC', ['no / little', 'low', 'low / moderate', 'moderate / high', 'high / total']) +
+      zeile('Budget Control', 'BC', [fm, fm, fm + ' / ' + pm, pm, pm]) +
+      zeile('PM Role', 'PMR', [pt, pt, pt + ' / ' + ft, ft, ft]) +
+      zeile('PM Staff', 'PMS', [pt, pt, pt + ' / ' + ft, ft, ft]) +
+      '<tr class="rolle"><th scope="row">Rolle</th><td><span class="rbar b-pe">' + mw('Expeditor', 'PE') + '</span></td><td colspan="4"></td></tr>' +
+      '<tr class="rolle"><th scope="row"></th><td colspan="2"><span class="rbar b-pc">' + mw('Coordinator', 'PC') + '</span></td><td colspan="3"></td></tr>' +
+      '<tr class="rolle"><th scope="row"></th><td colspan="2"></td><td colspan="3"><span class="rbar b-pm">' + mw('Project Manager', 'PMX') + '</span></td></tr>' +
+      '</tbody></table></div>' +
+      '<ul><li>' + mw('Organic / Simple', 'ORG') + ': kleine Firma oder Startup; eine echte PM-Rolle gibt es kaum, Projektarbeit läuft nebenbei (Teilzeit), Inhaber oder Betreiber steuert die meisten Budgets.</li>' +
+      '<li>' + mw('Virtual', 'VIR') + ': Projektarbeit über virtuelle Meetings und Chats; Befugnis des PM low / moderate, Ressourcen werden mit den Functional Managers geteilt; PM in Teil- oder Vollzeit.</li></ul>' +
+      '<div><p class="ueb2">Wer hat wie viel Macht?</p><p class="rangfolge">PM &gt; PC &gt; PE</p></div>' +
+      '<ul><li><b>Project Expeditor</b> (Functional): organisiert die Projektarbeit, keine formale Befugnis, keine Verantwortung für das Budget.</li>' +
+      '<li><b>Project Coordinator</b> (Functional, Weak): etwas Entscheidungsbefugnis, aber weniger als ein PM; kann Ressourcen zuweisen, entscheidet nicht über das Budget.</li>' +
+      '<li><b>Project Manager</b> (Balanced, Strong, Projectized): verantwortlich für das Ergebnis, hat das Projekt in der Hand und darf die Projektressourcen einsetzen.</li></ul>';
+  }
+  function merkVertragHtml() {
+    var tab = '<table class="vt"><thead><tr><th>Vertragsart · Kern</th><th>Risiko</th><th>Scope</th></tr></thead><tbody>' + MERK_VERTRAG.map(function (v) {
+      var r = MERK_RISIKO[v.r];
+      return '<tr class="z ' + (v.gr ? 'gr' : 'ut') + '" data-vzeile="' + v.id + '" aria-expanded="false">' +
+        '<td><span class="nm">' + mw(v.name, v.nk) + '</span><span class="lf">(' + (v.lk ? mw(v.lang, v.lk) : esc(v.lang)) + ')</span>' +
+        '<span class="kern">' + esc(v.kern) + '</span><span class="auf">▾ Beschreibung</span></td>' +
+        '<td><button class="mw risk ' + r[1] + '" data-merk="R:' + v.id + '">' + r[0] + '</button>' + (v.rz ? '<span class="lf">' + esc(v.rz) + '</span>' : '') + '</td>' +
+        '<td>' + esc(v.sc) + '</td></tr>' +
+        '<tr class="det" data-vdet="' + v.id + '" hidden><td colspan="3"><p><b>Beschreibung:</b> ' + esc(v.besch) + '</p><p><b>Beispiel:</b> ' + esc(v.bsp) + '</p></td></tr>';
+    }).join('') + '</tbody></table>';
+    return '<p class="leise">Prozess: ' + mw('Plan Sourcing Strategy', 'PSS') + ' · Zeile antippen für Beschreibung und Beispiel, unterstrichenes Wort für die Übersetzung. Beispiel-Szenario: eure Firmen-Website.</p>' + tab +
+      '<div><p class="ueb2">Merksatz</p><ul class="merkliste">' +
+      '<li><b>Festpreis</b> (Fixed Price)<ul><li>fest → <b>Firm</b> · ' + mw('FFP', 'FFP') + '</li><li>mit Bonus → <b>Incentive Fee</b> · ' + mw('FPIF', 'FPIF') + '</li>' +
+      '<li>mit Anpassung → <b>Economic Price Adjustment</b> · ' + mw('FP-EPA', 'FPEPA') + '</li></ul></li>' +
+      '<li><b>Kosten plus</b> (Cost Plus)<ul><li>fester Gewinn → <b>Fixed Fee</b> · ' + mw('CPFF', 'CPFF') + '</li><li>mit Bonus → <b>Incentive Fee</b> · ' + mw('CPIF', 'CPIF') + '</li></ul></li></ul></div>' +
+      '<div><p class="ueb2">Exam Tips</p><ul>' +
+      '<li>Immer aus Sicht des ' + mw('Buyers', 'BS') + ' denken und den besten Vertrag für ihn wählen.</li>' +
+      '<li>Bester Vertrag für den Buyer heißt nicht „immer Fixed Price“: Er passt zur Klarheit des Scopes. Ist der Scope unklar, schlägt der Seller einen Risikoaufschlag auf, und jede Änderung wird zum Change Request.</li>' +
+      '<li>Der Preis soll für beide Seiten fair sein.</li><li>Incentive Fees helfen, die Kosten zu senken.</li>' +
+      '<li>Ein Vertrag ist nichtig (' + mw('voided', 'VOID') + '), wenn er gegen lokale Gesetze verstößt.</li></ul></div>' +
+      '<div><p class="ueb2">Agile und Hybrid</p><p>Agile: Scope anfangs offen, also flexible Verträge; der Seller trägt die Unsicherheit mit. Hybrid: klassische Verträge für die predictive Teile, angepasste Verträge mit geteiltem Risiko für die agilen Teile.</p></div>' +
+      '<div><p class="ueb2">Neue Trends</p><p>' + mw('Agile contracting', 'AGC') + ' · ' + mw('Smart contracts', 'SMC') + ' · ' + mw('Outcome-based', 'OBC') + ' · ' + mw('Sustainable', 'SUC') + ' · ' + mw('Collaborative', 'COC') +
+      ' – z. B. Zahlung je fertigem Feature oder Meilenstein.</p></div>' +
+      '<div><p class="ueb2">Rahmen</p><p>' + mw('Make-or-buy analysis', 'MOB') + ', ' + mw('Market research', 'MR') + ' und ' + mw('Source selection analysis', 'SSA') + ' führen zum ' + mw('Sourcing strategy plan', 'SSP') + '.</p></div>';
+  }
+  function merkRisikoHtml() {
+    var q = function (k) {
+      return '<div class="qd" role="button" tabindex="0" data-merk="' + k + '"><span class="qn"><span class="mw">' + esc(MERK_INFO[k][0]) + '</span></span><span class="geld ' + MERK_QUAD[k].kl + '">' + esc(MERK_QUAD[k].geld) + '</span></div>';
+    };
+    return '<div class="km">' +
+      '<span></span><span></span><span class="achse w2 span2">2. Wort · die Sache</span>' +
+      '<span></span><span></span><span class="achse w2">steht fest (Known)</span><span class="achse w2">offen (Unknown)</span>' +
+      '<span class="achse links w1 rows2">1. Wort · das Team</span><span class="achse links w1">weiß es nicht (Unknown)</span>' + q('UK') + q('UU') +
+      '<span class="achse links w1">weiß es (Known)</span>' + q('KK') + q('KU') + '</div>' +
+      '<p class="leise">Kästchen antippen für Übersetzung, Beschreibung und Beispiel.</p>' +
+      '<div><p class="ueb2">Formeln</p><ul><li>' + mw('Cost Baseline', 'CB') + ' = Kostenschätzungen + ' + mw('Contingency Reserve', 'CONT') + '</li>' +
+      '<li>Projektbudget = Cost Baseline + ' + mw('Management Reserve', 'MAN') + '</li></ul></div>' +
+      '<div><p class="ueb2">Wer verfügt?</p><ul><li>Contingency Reserve: Projektleiter, für Risiken im ' + mw('Risk Register', 'RR') + ', ohne Change Request.</li>' +
+      '<li>Management Reserve: Sponsor bzw. Management. Sie muss erst über einen ' + mw('Change Request', 'CRQ') + ' freigegeben (aktiviert) werden.</li></ul></div>' +
+      '<p><b>Merksatz:</b> Contingency hängt an einem bekannten Risiko – über die Management Reserve entscheidet das Management.</p>';
+  }
+  function merkhilfenHtml() {
+    return '<p class="leise">Zum Nachschlagen, nach Performance Domain geordnet. Karte antippen zum Aufklappen; gepunktet unterstrichene Begriffe antippen für die Erklärung.</p>' +
+      '<h2 class="gruppe">Allgemein</h2>' +
+      merkKarte('merksatz', 'Merksatz Performance Domains', MERK_SATZ.map(function (p, i) { return ab(p[0]) + (i === 3 ? ' –' : ''); }).join(' ') + '.',
+        '<p>Steht auch über der Prozess-Matrix.</p><button class="textknopf merk-erkl" data-merk="MERK">Erklärung anzeigen ›</button>') +
+      merkKarte('org', 'Organisationsstrukturen', 'Je projektorientierter die Organisation, desto mehr Macht hat der PM.', merkOrgHtml()) +
+      '<h2 class="gruppe">Governance</h2>' +
+      merkKarte('vertrag', 'Vertragsarten (Contract Types)', 'Je klarer der Scope, desto fester der Preis – und desto mehr Risiko beim Seller.', merkVertragHtml()) +
+      '<h2 class="gruppe">Risk</h2>' +
+      merkKarte('risiko', 'Known / Unknown – Risiken einordnen', '<span class="mk w1">1. Wort</span> Hat das Team es auf dem Schirm? · <span class="mk w2">2. Wort</span> Steht die Sache fest?', merkRisikoHtml()) +
+      '<p class="leise">Eigene Merkhilfen; Texte und Beispiele sind eigene. <a href="#/quellen">Quellen und Hinweise</a></p>';
+  }
+  function bindeMerk() {
+    app.querySelectorAll('details.mkarte').forEach(function (d) {
+      d.addEventListener('toggle', function () { ui.merkOffen[d.getAttribute('data-mkarte')] = d.open; });
+    });
+    app.querySelectorAll('tr[data-vzeile]').forEach(function (z) {
+      z.addEventListener('click', function (ev) {
+        if (ev.target.closest('[data-merk]')) return;
+        var det = app.querySelector('tr[data-vdet="' + z.getAttribute('data-vzeile') + '"]');
+        var offen = det.hasAttribute('hidden');
+        if (offen) det.removeAttribute('hidden'); else det.setAttribute('hidden', '');
+        z.setAttribute('aria-expanded', String(offen));
+        z.querySelector('.auf').textContent = offen ? '▴ weniger' : '▾ Beschreibung';
+      });
+    });
+  }
+  /* Ein Klick-Handler für alle antippbaren Wörter (Übersicht, Merkhilfen) */
+  document.addEventListener('click', function (ev) {
+    var el = ev.target.closest && ev.target.closest('[data-merk]');
+    if (!el) return;
+    ev.preventDefault(); ev.stopPropagation();
+    zeigeMerkInfo(el.getAttribute('data-merk'));
+  });
+  document.addEventListener('keydown', function (ev) {
+    var qd = ev.target.closest && ev.target.closest('.qd[data-merk]');
+    if (qd && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); zeigeMerkInfo(qd.getAttribute('data-merk')); return; }
+    if (ev.key === 'Escape') { var hg = document.querySelector('[data-merk-hg]'); if (hg) hg.remove(); }
+  });
+
+  /* Von der Frage in die Prozess-Matrix und zurück (seit 1.15.0) */
+  function prozessInListe(p) {
+    return DOMAINS.some(function (d) { return FOCUS.some(function (f) { return (PROZESSE[d][f] || []).indexOf(p) >= 0; }); });
+  }
+  document.addEventListener('click', function (ev) {
+    var el = ev.target.closest && ev.target.closest('[data-zeigen]');
+    if (!el) return;
+    ev.preventDefault();
+    // angetippte, noch nicht geprüfte Auswahl (Mehrfachauswahl, Zuordnung) merken
+    var entwurf = { id: sitzung.id, mehr: [], zu: {} };
+    app.querySelectorAll('[data-mehr][aria-pressed="true"]').forEach(function (b) { entwurf.mehr.push(b.getAttribute('data-mehr')); });
+    app.querySelectorAll('[data-zu][aria-pressed="true"]').forEach(function (b) { entwurf.zu[b.getAttribute('data-zu')] = b.getAttribute('data-begriff'); });
+    sitzung.entwurf = entwurf;
+    ui.vonFrage = location.hash || '#/frage';
+    ui.frageScroll = window.scrollY || 0;
+    ui.markiert = el.getAttribute('data-zeigen');
+    ui.uebModus = 'prozesse';
+    location.hash = '#/uebersicht';
+  });
+  document.addEventListener('click', function (ev) {
+    var el = ev.target.closest && ev.target.closest('[data-zurueck-frage]');
+    if (!el) return;
+    ev.preventDefault();
+    history.back();
+  });
+
+  function rueckLeiste() {
+    return ui.vonFrage ? '<div class="zurueckleiste"><button class="textknopf zurueck" data-zurueck-frage>' + IKON.links + 'Zurück zur Frage</button>' +
+      '<span class="leise" lang="en">' + esc(ui.markiert || '') + '</span></div>' : '';
+  }
   function zeigeUebersicht() {
-    var umschalter = '<div class="segment" role="group" aria-label="Übersicht"><button data-ueb="prozesse" aria-pressed="' + (ui.uebModus !== 'ev') + '">Prozesse</button>' +
-      '<button data-ueb="ev" aria-pressed="' + (ui.uebModus === 'ev') + '">Earned Value</button></div>';
+    var umschalter = '<div class="segment" role="group" aria-label="Übersicht">' + [['prozesse', 'Prozesse'], ['ev', 'Earned Value'], ['merk', 'Merkhilfen']].map(function (m) {
+      return '<button data-ueb="' + m[0] + '" aria-pressed="' + (ui.uebModus === m[0] || (m[0] === 'prozesse' && ['ev', 'merk'].indexOf(ui.uebModus) < 0)) + '">' + m[1] + '</button>';
+    }).join('') + '</div>';
     if (ui.uebModus === 'ev') {
-      app.innerHTML = '<main class="seite mit-nav">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter + evHtml() + '</main>' + nav('uebersicht');
+      app.innerHTML = '<main class="seite mit-nav">' + rueckLeiste() + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter + evHtml() + '</main>' + nav('uebersicht');
       bindeUeb(); bindeEv();
+      return;
+    }
+    if (ui.uebModus === 'merk') {
+      app.innerHTML = '<main class="seite mit-nav">' + rueckLeiste() + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter + merkhilfenHtml() + '</main>' + nav('uebersicht');
+      bindeUeb(); bindeMerk();
       return;
     }
     zeigeProzessUebersicht(umschalter);
@@ -1559,9 +1865,9 @@
   }
 
   function zeigeProzessUebersicht(umschalter) {
-    app.innerHTML = '<main class="seite mit-nav breit">' + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter +
+    app.innerHTML = '<main class="seite mit-nav breit">' + rueckLeiste() + kopfMitZahnrad('<h1 class="gross">Übersicht</h1>') + umschalter + merksatzKarte() +
       '<p class="leise">Die 40 Prozesse des PMBOK Guide 8 nach Performance Domain (Zeilen) und Focus Area (Spalten). Seitlich wischen; quer gehalten passt mehr aufs Display.</p>' +
-      matrixHtml() +
+      matrixHtml(ui.vonFrage ? ui.markiert : null) +
       '<section class="karte"><span class="ueber">Verteilung</span><div class="verteilung">' +
       FOCUS.map(function (f) {
         var n = DOMAINS.reduce(function (s, d) { return s + (PROZESSE[d][f] || []).length; }, 0);
@@ -1571,6 +1877,8 @@
       PRINCIPLES.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></section>' +
       '<p class="leise">Eigene Darstellung nach der Struktur des PMBOK Guide 8; Focus Areas entsprechen den früheren Process Groups. <a href="#/quellen">Quellen und Hinweise</a></p>' +
       '</main>' + nav('uebersicht');
+    var m = ui.vonFrage && app.querySelector('.m-p.markiert');
+    if (m) setTimeout(function () { try { m.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch (e) { m.scrollIntoView(); } }, 60);
   }
 
   function fragenbankKarte() {
@@ -1978,6 +2286,7 @@
       '<p>Übersichten, Formeln und Erklärungen in der App beruhen auf frei zugänglichen, öffentlich verfügbaren Informationen; Teile sind mit KI erstellt. Texte aus Veröffentlichungen des PMI oder aus Büchern werden nicht übernommen.</p>' +
       '<ul><li><b>Prozessübersicht:</b> Eigene Darstellung nach der Struktur des PMBOK Guide 8.</li>' +
       '<li><b>Earned Value:</b> Gängige Earned-Value-Formeln; Beispiele, Zahlen und Texte sind eigene.</li>' +
+      '<li><b>Merkhilfen:</b> Eigene Merkhilfen; Texte und Beispiele sind eigene.</li>' +
       '<li><b>Üben (Netzplan, Earned Value):</b> Gängige Rechenregeln der Critical Path Method (Zählweise ab Tag 1) und des Earned Value. Die Aufgaben stehen in der eigenen Fragenbank, nicht in der App.</li></ul>' +
       '<h2>Marken</h2>' +
       '<p>PMI, PMP und PMBOK sind eingetragene Marken des Project Management Institute, Inc. Der PMP-Lernpartner steht in keiner Verbindung zum PMI und wird vom PMI weder unterstützt noch geprüft.</p>' +
@@ -2229,12 +2538,16 @@
     if (r.name === 'sets' && letzteRoute !== 'set' && letzteRoute !== 'f') ui.setsVon = letzteRoute === 'start' ? '#/start' : '#/einstellungen';
     if (r.name === 'quellen' && letzteRoute !== 'quellen') ui.quellenVon = letzteRoute === 'uebersicht' ? '#/uebersicht' : (letzteRoute === 'start' && !fragen.length) ? '#/start' : '#/einstellungen';
     if (r.name === 'hilfe' && letzteRoute !== 'hilfe') ui.hilfeVon = ['statistik', 'uebersicht', 'einstellungen', 'datenquelle'].indexOf(letzteRoute) >= 0 ? '#/' + letzteRoute : '#/start';
+    // Zurück aus der Prozess-Matrix zur Frage (seit 1.15.0): gleiche Frage, gleicher Zustand, keine neue Frage
+    var rueck = !!ui.vonFrage && letzteRoute === 'uebersicht' && (location.hash || '#/start') === ui.vonFrage;
+    if (r.name !== 'uebersicht' && r.name !== 'quellen') { ui.vonFrage = null; ui.markiert = null; }
     letzteRoute = r.name;
     var toast = document.querySelector('.toast'); if (toast) toast.remove();
+    var hg = document.querySelector('[data-merk-hg]'); if (hg) hg.remove();
     UEB.verlassen();
-    if (r.name === 'frage' && sitzung.quelle === 'lernen' && sitzung.phase === 'feedback') naechste();
+    if (!rueck && r.name === 'frage' && sitzung.quelle === 'lernen' && sitzung.phase === 'feedback') naechste();
     render();
-    window.scrollTo(0, 0);
+    window.scrollTo(0, rueck ? ui.frageScroll || 0 : 0);
   });
   if (window.matchMedia) {
     var mq = matchMedia('(prefers-color-scheme: dark)');
